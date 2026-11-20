@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Radar Pro - Patrones y Confluencia</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --card: #131c31;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --blue: #38bdf8;
+      --border: #26334d;
+    }
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; padding: 14px; background: var(--bg); color: var(--text); display: flex; justify-content: center; }
+    .app { width: 100%; max-width: 580px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    h1 { font-size: 1.12rem; margin: 0; }
+    .badge { font-size: 0.75rem; padding: 4px 9px; border-radius: 99px; background: #1e293b; color: var(--green); border: 1px solid var(--border); font-weight: 700; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
+    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    select {
+      width: 100%; padding: 9px; border-radius: 10px; border: 1px solid var(--border);
+      background: #0b1120; color: var(--text); font-size: 0.9rem;
+    }
+    .price-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .price { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.5px; }
+    .timer { font-size: 0.85rem; color: var(--amber); font-weight: 700; }
+    canvas { width: 100%; height: 205px; background: #080d1a; border-radius: 10px; border: 1px solid var(--border); display: block; }
+    .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 0.73rem; color: var(--muted); margin-top: 6px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 10px; text-align: center; }
+    .metric-box { background: #0b1120; padding: 8px 6px; border-radius: 10px; border: 1px solid var(--border); }
+    .metric-label { font-size: 0.68rem; color: var(--muted); }
+    .metric-val { font-size: 0.88rem; font-weight: 700; margin-top: 2px; }
+    .verdict { text-align: center; padding: 14px; }
+    .bias-tag { display: inline-block; font-size: 0.75rem; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #0b1120; border: 1px solid var(--border); color: var(--blue); margin-bottom: 4px; }
+    .signal { font-size: 1.5rem; font-weight: 900; margin: 4px 0; }
+    .call { color: var(--green); }
+    .put { color: var(--red); }
+    .wait { color: var(--amber); }
+    .pattern-box { background: #0b1120; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-top: 8px; font-size: 0.83rem; text-align: left; }
+    .reasons { text-align: left; font-size: 0.82rem; color: var(--muted); margin: 8px 0 0; padding-left: 18px; }
+    .reasons li { margin-bottom: 4px; }
+    .warn { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 8px; line-height: 1.35; }
+    @media (max-width: 460px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <h1>Radar Pro · Patrones y Estructura</h1>
+      <span class="badge" id="status">Conectando...</span>
+    </div>
+
+    <div class="card">
+      <div class="controls">
+        <select id="symbol" onchange="restartFeed()">
+          <option value="BTCUSDT">Bitcoin / USD (Mercado Real)</option>
+          <option value="ETHUSDT">Ethereum / USD (Mercado Real)</option>
+          <option value="SOLUSDT">Solana / USD (Mercado Real)</option>
+          <option value="PAXGUSDT">Oro Ref. PAXG / USD</option>
+        </select>
+        <select id="interval" onchange="restartFeed()">
+          <option value="1m">Velas 1 Minuto (1m)</option>
+          <option value="5m">Velas 5 Minutos (5m)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="price-row">
+        <div class="price" id="livePrice">--.--</div>
+        <div class="timer" id="candleTimer">Cierre vela: --s</div>
+      </div>
+      <canvas id="chart" width="540" height="205"></canvas>
+      <div class="legend">
+        <span><i class="dot" style="background:#38bdf8;"></i>EMA 9</span>
+        <span><i class="dot" style="background:#f59e0b;"></i>EMA 21</span>
+        <span><i class="dot" style="background:#a855f7;"></i>EMA 50</span>
+        <span><i class="dot" style="background:#22c55e;"></i>Soporte</span>
+        <span><i class="dot" style="background:#ef4444;"></i>Resistencia</span>
+      </div>
+
+      <div class="metrics">
+        <div class="metric-box">
+          <div class="metric-label">Tendencia (9/21/50)</div>
+          <div class="metric-val" id="trendStat">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">RSI (14)</div>
+          <div class="metric-val" id="rsiStat">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Estructura S/R</div>
+          <div class="metric-val" id="srStat">--</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-label">Fuerza Señal</div>
+          <div class="metric-val" id="confStat">--</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card verdict">
+      <div class="bias-tag" id="biasTag">DIRECCIÓN PROBABLE: EVALUANDO</div>
+      <div class="signal wait" id="signalText">CARGANDO VELAS...</div>
+      <div style="font-size: 0.88rem;" id="signalSub">Analizando velas, medias y niveles clave.</div>
+      <div class="pattern-box" id="patternBox"><strong>Patrón detectado:</strong> Analizando...</div>
+      <ul class="reasons" id="reasonsList"></ul>
+    </div>
+
+    <div class="warn">
+      Herramienta de apoyo basada en datos externos en vivo (no conectada a sesión de Pocket Option). Ninguna señal garantiza resultados. Prueba en cuenta Demo y arriesga 1%–2% por operación.
+    </div>
+  </div>
+
+  <script>
+    let candles = [];
+    let ws = null;
+    let timerInt = null;
+    let currentCloseTime = 0;
+
+    async function loadHistory(symbol, interval) {
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=80`;
+      const res = await fetch(url);
+      const data = await res.json();
+      candles = data.map(k => ({
+        time: k[0],
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+        closeTime: k[6]
+      }));
+      currentCloseTime = candles[candles.length - 1].closeTime;
+      updateAll();
+    }
+
+    function connectWS(symbol, interval) {
+      if (ws) ws.close();
+      const stream = `${symbol.toLowerCase()}@kline_${interval}`;
+      ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
+
+      ws.onopen = () => {
+        document.getElementById('status').textContent = 'EN VIVO ●';
+        document.getElementById('status').style.color = '#22c55e';
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        const k = msg.k;
+        const bar = {
+          time: k.t,
+          open: parseFloat(k.o),
+          high: parseFloat(k.h),
+          low: parseFloat(k.l),
+          close: parseFloat(k.c),
+          closeTime: k.T
+        };
+        currentCloseTime = bar.closeTime;
+
+        if (candles.length && candles[candles.length - 1].time === bar.time) {
+          candles[candles.length - 1] = bar;
+        } else {
+          candles.push(bar);
+          if (candles.length > 80) candles.shift();
+        }
+        updateAll();
+      };
+
+      ws.onclose = () => {
+        document.getElementById('status').textContent = 'Reconectando...';
+        document.getElementById('status').style.color = '#f59e0b';
+      };
+    }
+
+    function calcEMASeries(values, period) {
+      if (values.length < period) return [];
+      const k = 2 / (period + 1);
+      let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      const out = new Array(period - 1).fill(null);
+      out.push(ema);
+      for (let i = period; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        out.push(ema);
+      }
+      return out;
+    }
+
+    function calcRSI(closes, period = 14) {
+      if (closes.length <= period) return 50;
+      let gains = 0, losses = 0;
+      for (let i = closes.length - period; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      if (losses === 0) return 100;
+      const rs = (gains / period) / (losses / period);
+      return 100 - (100 / (1 + rs));
+    }
+
+    function getSupportResistance(list) {
+      const slice = list.slice(-25, -1);
+      if (!slice.length) return { support: null, resistance: null };
+      const resistance = Math.max(...slice.map(c => c.high));
+      const support = Math.min(...slice.map(c => c.low));
+      return { support, resistance };
+    }
+
+    function detectPattern(curr, prev) {
+      const body = Math.abs(curr.close - curr.open);
+      const range = Math.max(curr.high - curr.low, 0.00001);
+      const upperWick = curr.high - Math.max(curr.open, curr.close);
+      const lowerWick = Math.min(curr.open, curr.close) - curr.low;
+      const prevBody = Math.abs(prev.close - prev.open);
+
+      // Envolvente alcista
+      if (prev.close < prev.open && curr.close > curr.open &&
+          curr.close >= prev.open && curr.open <= prev.close && body > prevBody * 1.05) {
+        return { name: 'Envolvente Alcista', bias: 'CALL', pts: 1.5, desc: 'La vela verde absorbe el cuerpo rojo anterior.' };
+      }
+
+      // Envolvente bajista
+      if (prev.close > prev.open && curr.close < curr.open &&
+          curr.open >= prev.close && curr.close <= prev.open && body > prevBody * 1.05) {
+        return { name: 'Envolvente Bajista', bias: 'PUT', pts: 1.5, desc: 'La vela roja absorbe el cuerpo verde anterior.' };
+      }
+
+      // Martillo / Rechazo inferior fuerte
+      if (lowerWick >= body * 1.8 && lowerWick >= range * 0.45 && upperWick <= body * 0.6) {
+        return { name: 'Rechazo Inferior (Martillo)', bias: 'CALL', pts: 1.5, desc: 'Fuerte rechazo de compradores en la parte baja.' };
+      }
+
+      // Estrella fugaz / Rechazo superior fuerte
+      if (upperWick >= body * 1.8 && upperWick >= range * 0.45 && lowerWick <= body * 0.6) {
+        return { name: 'Rechazo Superior (Estrella Fugaz)', bias: 'PUT', pts: 1.5, desc: 'Fuerte rechazo de vendedores en la parte alta.' };
+      }
+
+      // Vela de indecisión / doji
+      if (body <= range * 0.18) {
+        return { name: 'Vela de Indecisión (Doji)', bias: 'WAIT', pts: 0, desc: 'Cuerpo pequeño: compradores y vendedores empatados.' };
+      }
+
+      return { name: curr.close >= curr.open ? 'Impulso Alcista Simple' : 'Impulso Bajista Simple', bias: curr.close >= curr.open ? 'CALL' : 'PUT', pts: 0.5, desc: 'Dirección de vela sin patrón extremo.' };
+    }
+
+    function drawLine(ctx, series, viewStartIdx, toY, step, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < 30; i++) {
+        const idx = viewStartIdx + i;
+        const val = series[idx];
+        if (val == null) continue;
+        const x = 10 + i * step + step / 2;
+        const y = toY(val);
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    function drawChart(ema9S, ema21S, ema50S, sr) {
+      const canvas = document.getElementById('chart');
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      const viewCount = Math.min(30, candles.length);
+      const startIdx = candles.length - viewCount;
+      const view = candles.slice(startIdx);
+      if (!view.length) return;
+
+      const highs = view.map(c => c.high);
+      const lows = view.map(c => c.low);
+      if (sr.resistance) highs.push(sr.resistance);
+      if (sr.support) lows.push(sr.support);
+
+      const maxP = Math.max(...highs);
+      const minP = Math.min(...lows);
+      const range = (maxP - minP) || 1;
+      const pad = 16;
+
+      const toY = p => h - pad - ((p - minP) / range) * (h - pad * 2);
+      const step = (w - 20) / viewCount;
+
+      // Niveles S/R
+      if (sr.resistance && sr.resistance <= maxP && sr.resistance >= minP) {
+        const yR = toY(sr.resistance);
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.55)';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(10, yR); ctx.lineTo(w - 10, yR); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (sr.support && sr.support <= maxP && sr.support >= minP) {
+        const yS = toY(sr.support);
+        ctx.strokeStyle = 'rgba(34, 197, 94, 0.55)';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath(); ctx.moveTo(10, yS); ctx.lineTo(w - 10, yS); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Velas
+      view.forEach((c, idx) => {
+        const x = 10 + idx * step + step / 2;
+        const isUp = c.close >= c.open;
+        ctx.strokeStyle = isUp ? '#22c55e' : '#ef4444';
+        ctx.fillStyle = isUp ? '#22c55e' : '#ef4444';
+        ctx.lineWidth = 1.2;
+
+        ctx.beginPath();
+        ctx.moveTo(x, toY(c.high));
+        ctx.lineTo(x, toY(c.low));
+        ctx.stroke();
+
+        const yOpen = toY(c.open);
+        const yClose = toY(c.close);
+        const bodyH = Math.max(Math.abs(yClose - yOpen), 2);
+        ctx.fillRect(x - step * 0.3, Math.min(yOpen, yClose), step * 0.6, bodyH);
+      });
+
+      drawLine(ctx, ema9S, startIdx, toY, step, '#38bdf8');
+      drawLine(ctx, ema21S, startIdx, toY, step, '#f59e0b');
+      drawLine(ctx, ema50S, startIdx, toY, step, '#a855f7');
+    }
+
+    function updateAll() {
+      if (candles.length < 52) return;
+      const closes = candles.map(c => c.close);
+      const last = candles[candles.length - 1];
+      const prev = candles[candles.length - 2];
+
+      document.getElementById('livePrice').textContent = last.close.toLocaleString('en-US', {
+        minimumFractionDigits: last.close < 10 ? 3 : 2,
+        maximumFractionDigits: last.close < 10 ? 3 : 2
+      });
+
+      const ema9S = calcEMASeries(closes, 9);
+      const ema21S = calcEMASeries(closes, 21);
+      const ema50S = calcEMASeries(closes, 50);
+
+      const e9 = ema9S[ema9S.length - 1];
+      const e21 = ema21S[ema21S.length - 1];
+      const e50 = ema50S[ema50S.length - 1];
+      const rsi = calcRSI(closes, 14);
+      const sr = getSupportResistance(candles);
+      const pat = detectPattern(last, prev);
+
+      let callPts = 0, putPts = 0;
+      const notes = [];
+
+      // Tendencia EMA 9 / 21 / 50
+      if (e9 > e21 && last.close > e50) {
+        callPts += 2;
+        document.getElementById('trendStat').textContent = 'Alcista ↑';
+        notes.push('EMA 9 > EMA 21 y precio arriba de EMA 50 (sesgo alcista).');
+      } else if (e9 < e21 && last.close < e50) {
+        putPts += 2;
+        document.getElementById('trendStat').textContent = 'Bajista ↓';
+        notes.push('EMA 9 < EMA 21 y precio debajo de EMA 50 (sesgo bajista).');
+      } else {
+        document.getElementById('trendStat').textContent = 'Mixta / Rango';
+        notes.push('Medias mezcladas o sin alineación clara: más riesgo de falsos movimientos.');
+      }
+
+      // RSI
+      document.getElementById('rsiStat').textContent = rsi.toFixed(1);
+      if (rsi < 30) {
+        callPts += 1.5;
+        notes.push(`RSI en sobreventa (${rsi.toFixed(1)}): presión vendedora agotada, posible subida.`);
+      } else if (rsi > 70) {
+        putPts += 1.5;
+        notes.push(`RSI en sobrecompra (${rsi.toFixed(1)}): presión compradora extendida, posible caída.`);
+      } else if (rsi >= 52 && callPts > putPts) {
+        callPts += 1;
+        notes.push(`RSI (${rsi.toFixed(1)}) respalda impulso alcista.`);
+      } else if (rsi <= 48 && putPts > callPts) {
+        putPts += 1;
+        notes.push(`RSI (${rsi.toFixed(1)}) respalda impulso bajista.`);
+      }
+
+      // Patrón de vela
+      document.getElementById('patternBox').innerHTML = `<strong>Patrón:</strong> ${pat.name} — <span style="color:#cbd5e1;">${pat.desc}</span>`;
+      if (pat.bias === 'CALL') {
+        callPts += pat.pts;
+      } else if (pat.bias === 'PUT') {
+        putPts += pat.pts;
+      }
+
+      // Soporte / Resistencia
+      const rangeSR = (sr.resistance && sr.support && sr.resistance > sr.support) ? (sr.resistance - sr.support) : 1;
+      const nearRes = sr.resistance && ((sr.resistance - last.close) / rangeSR) < 0.08;
+      const nearSup = sr.support && ((last.close - sr.support) / rangeSR) < 0.08;
+
+      if (nearRes) {
+        putPts += 1;
+        document.getElementById('srStat').textContent = 'En Resistencia';
+        notes.push('Precio cerca de techo/resistencia reciente: cuidado con comprar arriba.');
+      } else if (nearSup) {
+        callPts += 1;
+        document.getElementById('srStat').textContent = 'En Soporte';
+        notes.push('Precio cerca de piso/soporte reciente: zona de reacción potencial.');
+      } else {
+        document.getElementById('srStat').textContent = 'Zona Media';
+      }
+
+      // Dirección probable (orientación de lectura)
+      const biasTag = document.getElementById('biasTag');
+      if (callPts > putPts + 0.5) {
+        biasTag.textContent = 'DIRECCIÓN PROBABLE: SUBIR (ALCISTA)';
+        biasTag.style.color = '#22c55e';
+      } else if (putPts > callPts + 0.5) {
+        biasTag.textContent = 'DIRECCIÓN PROBABLE: BAJAR (BAJISTA)';
+        biasTag.style.color = '#ef4444';
+      } else {
+        biasTag.textContent = 'DIRECCIÓN PROBABLE: LATERAL / INDEFINIDA';
+        biasTag.style.color = '#f59e0b';
+      }
+
+      // Señal principal
+      const sigEl = document.getElementById('signalText');
+      const subEl = document.getElementById('signalSub');
+      const confEl = document.getElementById('confStat');
+
+      if (callPts >= 3.5 && callPts - putPts >= 1.5) {
+        sigEl.textContent = 'VA A SUBIR · CALL (COMPRA)';
+        sigEl.className = 'signal call';
+        subEl.textContent = 'Confluencia alcista favorable al cierre de vela.';
+        confEl.textContent = `${callPts.toFixed(1)} pts ↑`;
+      } else if (putPts >= 3.5 && putPts - callPts >= 1.5) {
+        sigEl.textContent = 'VA A BAJAR · PUT (VENTA)';
+        sigEl.className = 'signal put';
+        subEl.textContent = 'Confluencia bajista favorable al cierre de vela.';
+        confEl.textContent = `${putPts.toFixed(1)} pts ↓`;
+      } else {
+        sigEl.textContent = 'ESPERAR / NO ENTRAR';
+        sigEl.className = 'signal wait';
+        subEl.textContent = 'Falta confluencia o hay choque de señales; mejor esperar.';
+        confEl.textContent = `${Math.max(callPts, putPts).toFixed(1)} pts`;
+      }
+
+      document.getElementById('reasonsList').innerHTML = notes.map(n => `<li>${n}</li>`).join('');
+      drawChart(ema9S, ema21S, ema50S, sr);
+    }
+
+    async function restartFeed() {
+      const symbol = document.getElementById('symbol').value;
+      const interval = document.getElementById('interval').value;
+      document.getElementById('status').textContent = 'Cargando...';
+      await loadHistory(symbol, interval);
+      connectWS(symbol, interval);
+    }
+
+    timerInt = setInterval(() => {
+      if (!currentCloseTime) return;
+      const left = Math.max(0, Math.floor((currentCloseTime - Date.now()) / 1000));
+      document.getElementById('candleTimer').textContent = `Cierre vela: ${left}s`;
+    }, 500);
+
+    restartFeed();
+  </script>
+</body>
+</html>
