@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Radar Pro - Escáner Institucional y Confluencia</title>
+  <title>Radar Pro - Sube o Baja</title>
   <style>
     :root {
       --bg: #0b1120;
@@ -14,7 +14,6 @@
       --red: #ef4444;
       --amber: #f59e0b;
       --blue: #38bdf8;
-      --purple: #a855f7;
       --border: #26334d;
     }
     * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
@@ -32,14 +31,14 @@
     .scan-btn {
       width: 100%;
       margin-top: 10px;
-      padding: 12px 14px;
+      padding: 13px 14px;
       border-radius: 11px;
       border: 1px solid #38bdf8;
       background: linear-gradient(135deg, #0284c7, #1d4ed8);
       color: #ffffff;
-      font-size: 0.94rem;
+      font-size: 0.96rem;
       font-weight: 800;
-      letter-spacing: 0.3px;
+      letter-spacing: 0.4px;
       cursor: pointer;
     }
     .scan-btn:disabled { opacity: 0.65; cursor: not-allowed; }
@@ -59,41 +58,26 @@
     canvas { width: 100%; height: 215px; background: #080d1a; border-radius: 10px; border: 1px solid var(--border); display: block; }
     .legend { display: flex; gap: 11px; flex-wrap: wrap; font-size: 0.72rem; color: var(--muted); margin-top: 6px; }
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin-top: 10px; text-align: center; }
-    .metric-box { background: #0b1120; padding: 8px 6px; border-radius: 10px; border: 1px solid var(--border); }
-    .metric-label { font-size: 0.67rem; color: var(--muted); }
-    .metric-val { font-size: 0.84rem; font-weight: 700; margin-top: 2px; }
-    .verdict { text-align: center; padding: 14px; }
-    .entry-pill { display: inline-block; font-size: 0.78rem; font-weight: 900; padding: 4px 12px; border-radius: 99px; margin-bottom: 6px; border: 1px solid var(--border); }
-    .entry-yes { background: rgba(34, 197, 94, 0.15); color: var(--green); border-color: rgba(34, 197, 94, 0.45); }
-    .entry-no { background: rgba(245, 158, 11, 0.15); color: var(--amber); border-color: rgba(245, 158, 11, 0.45); }
-    .bias-tag { display: inline-block; font-size: 0.74rem; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #0b1120; border: 1px solid var(--border); color: var(--blue); margin-bottom: 4px; }
-    .signal { font-size: 1.48rem; font-weight: 900; margin: 4px 0; }
+    .verdict { text-align: center; padding: 24px 14px; }
+    .signal { font-size: 2.15rem; font-weight: 900; margin: 0; letter-spacing: 0.6px; }
     .call { color: var(--green); }
     .put { color: var(--red); }
-    .wait { color: var(--amber); }
-    .info-box { background: #0b1120; border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-top: 8px; font-size: 0.82rem; text-align: left; line-height: 1.38; }
-    .reasons { text-align: left; font-size: 0.8rem; color: var(--muted); margin: 8px 0 0; padding-left: 18px; }
-    .reasons li { margin-bottom: 4px; }
-    .warn { font-size: 0.73rem; color: var(--muted); text-align: center; margin-top: 8px; line-height: 1.35; }
-    @media (max-width: 460px) {
-      .metrics { grid-template-columns: repeat(2, 1fr); }
-    }
+    .wait { color: var(--amber); font-size: 1.35rem; }
   </style>
 </head>
 <body>
   <div class="app">
     <div class="header">
-      <h1>Radar Pro · Escáner Institucional</h1>
+      <h1>Radar Pro</h1>
       <span class="badge" id="status">Conectando...</span>
     </div>
 
     <div class="card">
       <div class="controls">
         <select id="symbol" onchange="restartFeed()">
-          <option value="BTCUSDT">Bitcoin / USD (Mercado Real)</option>
-          <option value="ETHUSDT">Ethereum / USD (Mercado Real)</option>
-          <option value="SOLUSDT">Solana / USD (Mercado Real)</option>
+          <option value="BTCUSDT">Bitcoin / USD</option>
+          <option value="ETHUSDT">Ethereum / USD</option>
+          <option value="SOLUSDT">Solana / USD</option>
           <option value="PAXGUSDT">Oro Ref. PAXG / USD</option>
         </select>
         <select id="interval" onchange="restartFeed()">
@@ -101,11 +85,11 @@
           <option value="5m">Velas 5 Minutos (5m)</option>
         </select>
       </div>
-      <button class="scan-btn" id="scanBtn" onclick="startVisualScan()">ESCANEAR GRÁFICO (~1.5S)</button>
+      <button class="scan-btn" id="scanBtn" onclick="startVisualScan()">ANALIZAR GRÁFICO</button>
       <div class="progress-wrap">
         <div class="progress-bar" id="scanProgress"></div>
       </div>
-      <div class="scan-meta" id="scanMeta">Pulsa el botón para escanear el gráfico y decidir si ENTRAR o NO ENTRAR.</div>
+      <div class="scan-meta" id="scanMeta">Pulsa el botón para analizar el mercado.</div>
     </div>
 
     <div class="card">
@@ -118,49 +102,13 @@
         <span><i class="dot" style="background:#38bdf8;"></i>EMA 9</span>
         <span><i class="dot" style="background:#f59e0b;"></i>EMA 21</span>
         <span><i class="dot" style="background:#a855f7;"></i>EMA 50</span>
-        <span><i class="dot" style="background:#22c55e;"></i>Demanda / Soporte</span>
-        <span><i class="dot" style="background:#ef4444;"></i>Oferta / Resistencia</span>
-      </div>
-
-      <div class="metrics">
-        <div class="metric-box">
-          <div class="metric-label">Estructura</div>
-          <div class="metric-val" id="structStat">--</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">EMA 9/21/50</div>
-          <div class="metric-val" id="trendStat">--</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">RSI (14)</div>
-          <div class="metric-val" id="rsiStat">--</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">MACD Momentum</div>
-          <div class="metric-val" id="macdStat">--</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">Liquidez / S&amp;R</div>
-          <div class="metric-val" id="srStat">--</div>
-        </div>
-        <div class="metric-box">
-          <div class="metric-label">Volatilidad ATR</div>
-          <div class="metric-val" id="atrStat">--</div>
-        </div>
+        <span><i class="dot" style="background:#22c55e;"></i>Soporte</span>
+        <span><i class="dot" style="background:#ef4444;"></i>Resistencia</span>
       </div>
     </div>
 
     <div class="card verdict">
-      <div class="entry-pill entry-no" id="entryPill">DECISIÓN: SIN ESCANEAR</div><br />
-      <div class="bias-tag" id="biasTag">LECTURA: PENDIENTE</div>
-      <div class="signal wait" id="signalText">PULSA "ESCANEAR GRÁFICO (~1.5S)"</div>
-      <div style="font-size: 0.86rem;" id="signalSub">El escáner revisará estructura, liquidez, momentum y velas antes de responder.</div>
-      <div class="info-box" id="patternBox"><strong>Patrón y Liquidez:</strong> Esperando escaneo del gráfico.</div>
-      <ul class="reasons" id="reasonsList"></ul>
-    </div>
-
-    <div class="warn">
-      Herramienta de apoyo técnico con datos externos en vivo de Binance (no conectada a sesión de Pocket Option). Ninguna lectura garantiza resultados. Valida en Demo y gestiona tu riesgo.
+      <div class="signal wait" id="signalText">LISTO PARA ANALIZAR</div>
     </div>
   </div>
 
@@ -171,15 +119,15 @@
     let currentCloseTime = 0;
 
     let isScanning = false;
-    let scanProgress = 0; // 0 a 1
+    let scanProgress = 0;
     let scanTimer = null;
     let scanPhaseText = '';
 
     let hasScanResult = false;
-    let latestScan = null;
+    let latestDirection = null; // 'SUBE' | 'BAJA'
 
     async function loadHistory(symbol, interval) {
-      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=90`;
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=120`;
       const res = await fetch(url);
       const data = await res.json();
       candles = data.map(k => ({
@@ -221,7 +169,7 @@
           candles[candles.length - 1] = bar;
         } else {
           candles.push(bar);
-          if (candles.length > 90) candles.shift();
+          if (candles.length > 120) candles.shift();
         }
         refreshLiveFeed();
       };
@@ -259,7 +207,7 @@
     }
 
     function calcMACD(closes) {
-      if (closes.length < 30) return { macd: 0, signal: 0, hist: 0 };
+      if (closes.length < 30) return { macd: 0, signal: 0, hist: 0, prevHist: 0 };
       const ema12 = calcEMASeries(closes, 12);
       const ema26 = calcEMASeries(closes, 26);
       const macdSeries = [];
@@ -268,11 +216,14 @@
           macdSeries.push(ema12[i] - ema26[i]);
         }
       }
-      if (macdSeries.length < 10) return { macd: 0, signal: 0, hist: 0 };
+      if (macdSeries.length < 11) return { macd: 0, signal: 0, hist: 0, prevHist: 0 };
       const sigSeries = calcEMASeries(macdSeries, 9);
-      const m = macdSeries[macdSeries.length - 1];
-      const s = sigSeries[sigSeries.length - 1] ?? m;
-      return { macd: m, signal: s, hist: m - s };
+      const idx = macdSeries.length - 1;
+      const m = macdSeries[idx];
+      const s = sigSeries[idx] ?? m;
+      const prevM = macdSeries[idx - 1];
+      const prevS = sigSeries[idx - 1] ?? prevM;
+      return { macd: m, signal: s, hist: m - s, prevHist: prevM - prevS };
     }
 
     function calcATR(list, period = 14) {
@@ -292,94 +243,71 @@
       return recent.reduce((a, b) => a + b, 0) / recent.length;
     }
 
-    function detectMarketStructure(list) {
-      const prevWin = list.slice(-24, -12);
-      const currWin = list.slice(-12, -1);
-      if (!prevWin.length || !currWin.length) {
-        return { label: 'Rango', bias: 'NEUTRAL', pts: 0, note: 'Pocas velas para confirmar estructura.' };
-      }
+    function analyzeStructureDeep(list) {
+      const w1 = list.slice(-36, -24);
+      const w2 = list.slice(-24, -12);
+      const w3 = list.slice(-12, -1);
+      if (!w1.length || !w2.length || !w3.length) return 0;
 
-      const prevHigh = Math.max(...prevWin.map(c => c.high));
-      const prevLow = Math.min(...prevWin.map(c => c.low));
-      const currHigh = Math.max(...currWin.map(c => c.high));
-      const currLow = Math.min(...currWin.map(c => c.low));
+      const h1 = Math.max(...w1.map(c => c.high)), l1 = Math.min(...w1.map(c => c.low));
+      const h2 = Math.max(...w2.map(c => c.high)), l2 = Math.min(...w2.map(c => c.low));
+      const h3 = Math.max(...w3.map(c => c.high)), l3 = Math.min(...w3.map(c => c.low));
 
-      const higherHigh = currHigh > prevHigh;
-      const higherLow = currLow > prevLow;
-      const lowerHigh = currHigh < prevHigh;
-      const lowerLow = currLow < prevLow;
+      let score = 0;
+      if (h2 > h1) score += 0.8; else if (h2 < h1) score -= 0.8;
+      if (l2 > l1) score += 0.8; else if (l2 < l1) score -= 0.8;
+      if (h3 > h2) score += 1.2; else if (h3 < h2) score -= 1.2;
+      if (l3 > l2) score += 1.2; else if (l3 < l2) score -= 1.2;
+      return score;
+    }
 
-      if (higherHigh && higherLow) {
-        return {
-          label: 'Alcista (HH/HL)',
-          bias: 'CALL',
-          pts: 2,
-          note: 'Estructura alcista: máximos y mínimos más altos en el tramo reciente.'
-        };
-      }
-      if (lowerHigh && lowerLow) {
-        return {
-          label: 'Bajista (LH/LL)',
-          bias: 'PUT',
-          pts: 2,
-          note: 'Estructura bajista: máximos y mínimos más bajos en el tramo reciente.'
-        };
-      }
+    function getSupportResistance(list) {
+      const slice = list.slice(-36, -1);
+      if (!slice.length) return { support: null, resistance: null };
       return {
-        label: 'Rango / Transición',
-        bias: 'NEUTRAL',
-        pts: 0,
-        note: 'Precio en rango o transición estructural: mayor riesgo de rupturas falsas.'
+        resistance: Math.max(...slice.map(c => c.high)),
+        support: Math.min(...slice.map(c => c.low))
       };
     }
 
-    function getSupportResistanceAndLiquidity(list) {
-      const slice = list.slice(-30, -1);
-      if (!slice.length) return { support: null, resistance: null, sweepNote: '' };
-      const resistance = Math.max(...slice.map(c => c.high));
-      const support = Math.min(...slice.map(c => c.low));
-      const last = list[list.length - 1];
+    function analyzeCandlesDeep(list) {
+      const curr = list[list.length - 1];
+      const prev = list[list.length - 2];
+      const prev2 = list[list.length - 3];
 
-      let sweepNote = '';
-      if (last.low < support && last.close > support) {
-        sweepNote = 'Posible barrido de liquidez (sweep) por debajo del soporte con recuperación.';
-      } else if (last.high > resistance && last.close < resistance) {
-        sweepNote = 'Posible barrido de liquidez (sweep) por encima de la resistencia con rechazo.';
-      }
-
-      return { support, resistance, sweepNote };
-    }
-
-    function detectPattern(curr, prev) {
       const body = Math.abs(curr.close - curr.open);
       const range = Math.max(curr.high - curr.low, 0.00001);
       const upperWick = curr.high - Math.max(curr.open, curr.close);
       const lowerWick = Math.min(curr.open, curr.close) - curr.low;
       const prevBody = Math.abs(prev.close - prev.open);
 
-      if (prev.close < prev.open && curr.close > curr.open &&
-          curr.close >= prev.open && curr.open <= prev.close && body > prevBody * 1.05) {
-        return { name: 'Envolvente Alcista', bias: 'CALL', pts: 1.5, desc: 'Vela alcista absorbe el cuerpo bajista previo.' };
+      let score = 0;
+
+      // Dirección y cuerpo de la vela actual
+      if (curr.close > curr.open) {
+        score += (body / range) * 1.4;
+      } else if (curr.close < curr.open) {
+        score -= (body / range) * 1.4;
       }
-      if (prev.close > prev.open && curr.close < curr.open &&
-          curr.open >= prev.close && curr.close <= prev.open && body > prevBody * 1.05) {
-        return { name: 'Envolvente Bajista', bias: 'PUT', pts: 1.5, desc: 'Vela bajista absorbe el cuerpo alcista previo.' };
+
+      // Rechazos por mecha
+      if (lowerWick > body * 1.5 && lowerWick > upperWick) score += 1.1;
+      if (upperWick > body * 1.5 && upperWick > lowerWick) score -= 1.1;
+
+      // Envolvente respecto a vela previa
+      if (prev.close < prev.open && curr.close > curr.open && curr.close >= prev.open && body > prevBody) {
+        score += 1.4;
       }
-      if (lowerWick >= body * 1.8 && lowerWick >= range * 0.45 && upperWick <= body * 0.6) {
-        return { name: 'Martillo / Rechazo Alcista', bias: 'CALL', pts: 1.5, desc: 'Fuerte rechazo comprador en la parte inferior.' };
+      if (prev.close > prev.open && curr.close < curr.open && curr.close <= prev.open && body > prevBody) {
+        score -= 1.4;
       }
-      if (upperWick >= body * 1.8 && upperWick >= range * 0.45 && lowerWick <= body * 0.6) {
-        return { name: 'Estrella Fugaz / Rechazo Bajista', bias: 'PUT', pts: 1.5, desc: 'Fuerte rechazo vendedor en la parte superior.' };
-      }
-      if (body <= range * 0.18) {
-        return { name: 'Doji / Indecisión', bias: 'WAIT', pts: 0, desc: 'Cuerpo pequeño: equilibrio entre compradores y vendedores.' };
-      }
-      return {
-        name: curr.close >= curr.open ? 'Vela Alcista' : 'Vela Bajista',
-        bias: curr.close >= curr.open ? 'CALL' : 'PUT',
-        pts: 0.5,
-        desc: 'Impulso direccional moderado sin extremo de mecha.'
-      };
+
+      // Secuencia de 3 velas
+      const up3 = (curr.close > curr.open ? 1 : 0) + (prev.close > prev.open ? 1 : 0) + (prev2.close > prev2.open ? 1 : 0);
+      if (up3 === 3) score += 1.0;
+      if (up3 === 0) score -= 1.0;
+
+      return score;
     }
 
     function drawLine(ctx, series, viewStartIdx, toY, step, color) {
@@ -425,14 +353,14 @@
 
       if (sr.resistance && sr.resistance <= maxP && sr.resistance >= minP) {
         const yR = toY(sr.resistance);
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.55)';
         ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.moveTo(10, yR); ctx.lineTo(w - 10, yR); ctx.stroke();
         ctx.setLineDash([]);
       }
       if (sr.support && sr.support <= maxP && sr.support >= minP) {
         const yS = toY(sr.support);
-        ctx.strokeStyle = 'rgba(34, 197, 94, 0.6)';
+        ctx.strokeStyle = 'rgba(34, 197, 94, 0.55)';
         ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.moveTo(10, yS); ctx.lineTo(w - 10, yS); ctx.stroke();
         ctx.setLineDash([]);
@@ -478,11 +406,11 @@
       }
     }
 
-    function computeFullAnalysis() {
-      if (candles.length < 55) return null;
+    function predictDirectionDeep() {
+      if (candles.length < 60) return 'SUBE';
+
       const closes = candles.map(c => c.close);
       const last = candles[candles.length - 1];
-      const prev = candles[candles.length - 2];
 
       const ema9S = calcEMASeries(closes, 9);
       const ema21S = calcEMASeries(closes, 21);
@@ -491,188 +419,87 @@
       const e9 = ema9S[ema9S.length - 1];
       const e21 = ema21S[ema21S.length - 1];
       const e50 = ema50S[ema50S.length - 1];
+      const prevE9 = ema9S[ema9S.length - 2];
+      const prevE21 = ema21S[ema21S.length - 2];
+
       const rsi = calcRSI(closes, 14);
-      const macdObj = calcMACD(closes);
+      const macd = calcMACD(closes);
       const atr = calcATR(candles, 14);
-      const struct = detectMarketStructure(candles);
-      const sr = getSupportResistanceAndLiquidity(candles);
-      const pat = detectPattern(last, prev);
+      const sr = getSupportResistance(candles);
 
-      let callPts = 0;
-      let putPts = 0;
-      const notes = [];
+      let netScore = 0;
 
-      if (struct.bias === 'CALL') callPts += struct.pts;
-      else if (struct.bias === 'PUT') putPts += struct.pts;
-      notes.push(struct.note);
+      // 1. Estructura profunda de máximos y mínimos
+      netScore += analyzeStructureDeep(candles) * 1.35;
 
-      let trendText = 'Mixta / Rango';
-      if (e9 > e21 && last.close > e50) {
-        callPts += 1.5;
-        trendText = 'Alcista ↑';
-        notes.push('EMA 9 > EMA 21 y precio arriba de EMA 50.');
-      } else if (e9 < e21 && last.close < e50) {
-        putPts += 1.5;
-        trendText = 'Bajista ↓';
-        notes.push('EMA 9 < EMA 21 y precio debajo de EMA 50.');
-      } else {
-        notes.push('Medias EMAs sin alineación completa.');
+      // 2. Alineación y pendiente de EMAs
+      if (e9 != null && e21 != null && e50 != null) {
+        if (e9 > e21) netScore += 1.4;
+        else if (e9 < e21) netScore -= 1.4;
+
+        if (last.close > e50) netScore += 1.3;
+        else if (last.close < e50) netScore -= 1.3;
+
+        if (prevE9 != null && prevE21 != null) {
+          if (e9 > prevE9 && e21 > prevE21) netScore += 0.8;
+          if (e9 < prevE9 && e21 < prevE21) netScore -= 0.8;
+        }
       }
 
-      let macdText = 'Neutral';
-      if (macdObj.macd > macdObj.signal && macdObj.hist > 0) {
-        callPts += 1.25;
-        macdText = 'Alcista ↑';
-        notes.push('MACD por encima de su señal con histograma positivo.');
-      } else if (macdObj.macd < macdObj.signal && macdObj.hist < 0) {
-        putPts += 1.25;
-        macdText = 'Bajista ↓';
-        notes.push('MACD por debajo de su señal con histograma negativo.');
-      } else {
-        notes.push('MACD sin impulso claro.');
+      // 3. Momentum MACD e histograma
+      if (macd.macd > macd.signal) netScore += 1.2;
+      else if (macd.macd < macd.signal) netScore -= 1.2;
+
+      if (macd.hist > macd.prevHist) netScore += 0.8;
+      else if (macd.hist < macd.prevHist) netScore -= 0.8;
+
+      // 4. RSI (continuación + reversión extrema)
+      if (rsi < 28) netScore += 1.6;
+      else if (rsi > 72) netScore -= 1.6;
+      else netScore += ((rsi - 50) / 25) * 1.1;
+
+      // 5. Acción del precio y velas
+      netScore += analyzeCandlesDeep(candles);
+
+      // 6. Posición respecto a liquidez / S&R y volatilidad ATR
+      const rangeSR = (sr.resistance && sr.support && sr.resistance > sr.support)
+        ? (sr.resistance - sr.support)
+        : Math.max(atr * 4, 0.0001);
+
+      if (sr.support != null && last.low < sr.support && last.close > sr.support) {
+        netScore += 1.5; // barrido inferior con recuperación
+      }
+      if (sr.resistance != null && last.high > sr.resistance && last.close < sr.resistance) {
+        netScore -= 1.5; // barrido superior con rechazo
       }
 
-      if (rsi < 30) {
-        callPts += 1;
-        notes.push(`RSI (${rsi.toFixed(1)}) en zona de sobreventa.`);
-      } else if (rsi > 70) {
-        putPts += 1;
-        notes.push(`RSI (${rsi.toFixed(1)}) en zona de sobrecompra.`);
-      } else if (rsi >= 53 && callPts > putPts) {
-        callPts += 0.75;
-        notes.push(`RSI (${rsi.toFixed(1)}) apoya sesgo alcista.`);
-      } else if (rsi <= 47 && putPts > callPts) {
-        putPts += 0.75;
-        notes.push(`RSI (${rsi.toFixed(1)}) apoya sesgo bajista.`);
+      const distRes = sr.resistance != null ? (sr.resistance - last.close) / rangeSR : 0.5;
+      const distSup = sr.support != null ? (last.close - sr.support) / rangeSR : 0.5;
+      if (distRes < 0.06 && netScore > 0) netScore -= 1.1;
+      if (distSup < 0.06 && netScore < 0) netScore += 1.1;
+
+      // Si queda prácticamente en empate exacto, desempatar por dirección de las últimas velas
+      if (Math.abs(netScore) < 0.15) {
+        const last3Diff = closes[closes.length - 1] - closes[closes.length - 4];
+        return last3Diff >= 0 ? 'SUBE' : 'BAJA';
       }
 
-      if (pat.bias === 'CALL') callPts += pat.pts;
-      else if (pat.bias === 'PUT') putPts += pat.pts;
-
-      const rangeSR = (sr.resistance && sr.support && sr.resistance > sr.support) ? (sr.resistance - sr.support) : 1;
-      const nearRes = sr.resistance && ((sr.resistance - last.close) / rangeSR) < 0.08;
-      const nearSup = sr.support && ((last.close - sr.support) / rangeSR) < 0.08;
-
-      let srText = 'Zona Media';
-      if (sr.sweepNote) notes.push(sr.sweepNote);
-
-      if (nearRes) {
-        putPts += 0.75;
-        srText = 'En Resistencia';
-        notes.push('Precio pegado a zona de resistencia/oferta.');
-      } else if (nearSup) {
-        callPts += 0.75;
-        srText = 'En Soporte';
-        notes.push('Precio pegado a zona de soporte/demanda.');
-      }
-
-      const atrPct = last.close > 0 ? (atr / last.close) * 100 : 0;
-      let atrText = atrPct < 0.04 ? 'Baja' : (atrPct > 0.35 ? 'Alta' : 'Sana');
-      if (atrPct < 0.04) {
-        notes.push('Volatilidad muy baja: riesgo de movimientos lentos o ruido.');
-      }
-
-      let decision = 'NO ENTRAR';
-      let canEnter = false;
-      let signalTitle = 'NO ENTRAR';
-      let signalClass = 'signal wait';
-      let signalSub = 'No hay confluencia suficiente o la estructura no está clara.';
-      let biasLabel = 'DIRECCIÓN: NO OPERAR / ESPERAR';
-      let biasColor = '#f59e0b';
-      let pillText = 'DECISIÓN: NO ENTRAR';
-      let pillClass = 'entry-pill entry-no';
-
-      const minPts = 4.5;
-      const minGap = 1.75;
-
-      if (callPts >= minPts && (callPts - putPts) >= minGap && !nearRes) {
-        decision = 'SUBE';
-        canEnter = true;
-        signalTitle = 'SUBE · ENTRAR (CALL)';
-        signalClass = 'signal call';
-        signalSub = 'Estructura, momentum y confluencia favorecen movimiento alcista.';
-        biasLabel = 'DIRECCIÓN: SUBE (CALL)';
-        biasColor = '#22c55e';
-        pillText = 'DECISIÓN: SÍ ENTRAR · SUBE';
-        pillClass = 'entry-pill entry-yes';
-      } else if (putPts >= minPts && (putPts - callPts) >= minGap && !nearSup) {
-        decision = 'BAJA';
-        canEnter = true;
-        signalTitle = 'BAJA · ENTRAR (PUT)';
-        signalClass = 'signal put';
-        signalSub = 'Estructura, momentum y confluencia favorecen movimiento bajista.';
-        biasLabel = 'DIRECCIÓN: BAJA (PUT)';
-        biasColor = '#ef4444';
-        pillText = 'DECISIÓN: SÍ ENTRAR · BAJA';
-        pillClass = 'entry-pill entry-yes';
-      }
-
-      const fmtPrice = p => p.toLocaleString('en-US', {
-        minimumFractionDigits: p < 10 ? 3 : 2,
-        maximumFractionDigits: p < 10 ? 3 : 2
-      });
-
-      return {
-        ema9S, ema21S, ema50S, sr,
-        structLabel: struct.label,
-        trendText,
-        rsiText: rsi.toFixed(1),
-        macdText,
-        srText,
-        atrText: `${atrText} (${fmtPrice(atr)})`,
-        pat,
-        sweepNote: sr.sweepNote,
-        decision,
-        canEnter,
-        signalTitle,
-        signalClass,
-        signalSub,
-        biasLabel,
-        biasColor,
-        pillText,
-        pillClass,
-        scoreSummary: `CALL ${callPts.toFixed(1)} vs PUT ${putPts.toFixed(1)}`,
-        notes,
-        priceText: fmtPrice(last.close),
-        scannedAt: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      };
+      return netScore >= 0 ? 'SUBE' : 'BAJA';
     }
 
-    function renderScanResult(res) {
-      if (!res) return;
-      document.getElementById('structStat').textContent = res.structLabel;
-      document.getElementById('trendStat').textContent = res.trendText;
-      document.getElementById('rsiStat').textContent = res.rsiText;
-      document.getElementById('macdStat').textContent = res.macdText;
-      document.getElementById('srStat').textContent = res.srText;
-      document.getElementById('atrStat').textContent = res.atrText;
-
-      const pill = document.getElementById('entryPill');
-      pill.textContent = res.pillText;
-      pill.className = res.pillClass;
-
-      const biasTag = document.getElementById('biasTag');
-      biasTag.textContent = res.biasLabel;
-      biasTag.style.color = res.biasColor;
-
-      const sigEl = document.getElementById('signalText');
-      sigEl.textContent = res.signalTitle;
-      sigEl.className = res.signalClass;
-
-      document.getElementById('signalSub').textContent = res.signalSub;
-
-      const sweepPart = res.sweepNote ? `<br /><span style="color:#38bdf8;">Liquidez:</span> ${res.sweepNote}` : '';
-      document.getElementById('patternBox').innerHTML =
-        `<strong>Patrón:</strong> ${res.pat.name} — <span style="color:#cbd5e1;">${res.pat.desc}</span>` +
-        `<br /><span style="color:#94a3b8;">Puntaje de confluencia: ${res.scoreSummary}</span>${sweepPart}`;
-
-      document.getElementById('reasonsList').innerHTML = res.notes.map(n => `<li>${n}</li>`).join('');
-      document.getElementById('scanMeta').textContent =
-        `Lectura lista a las ${res.scannedAt} · Precio: ${res.priceText} · ${res.scoreSummary}`;
+    function renderOnlyDirection(dir) {
+      const el = document.getElementById('signalText');
+      if (dir === 'SUBE') {
+        el.textContent = 'VA A SUBIR';
+        el.className = 'signal call';
+      } else {
+        el.textContent = 'VA A BAJAR';
+        el.className = 'signal put';
+      }
     }
 
     function refreshLiveFeed() {
-      if (candles.length < 55) return;
+      if (candles.length < 60) return;
       const closes = candles.map(c => c.close);
       const last = candles[candles.length - 1];
 
@@ -684,18 +511,18 @@
       const ema9S = calcEMASeries(closes, 9);
       const ema21S = calcEMASeries(closes, 21);
       const ema50S = calcEMASeries(closes, 50);
-      const sr = getSupportResistanceAndLiquidity(candles);
+      const sr = getSupportResistance(candles);
       drawChart(ema9S, ema21S, ema50S, sr);
 
-      if (hasScanResult && latestScan && !isScanning) {
-        renderScanResult(latestScan);
+      if (hasScanResult && latestDirection && !isScanning) {
+        renderOnlyDirection(latestDirection);
       }
     }
 
     function startVisualScan() {
       if (isScanning) return;
-      if (candles.length < 55) {
-        document.getElementById('scanMeta').textContent = 'Cargando velas del mercado, espera un momento...';
+      if (candles.length < 60) {
+        document.getElementById('scanMeta').textContent = 'Cargando velas...';
         return;
       }
 
@@ -706,7 +533,7 @@
       const meta = document.getElementById('scanMeta');
 
       btn.disabled = true;
-      btn.textContent = 'ESCANEANDO...';
+      btn.textContent = 'ANALIZANDO...';
       bar.style.width = '0%';
 
       const durationMs = 1500;
@@ -717,13 +544,10 @@
         scanProgress = Math.min(1, elapsed / durationMs);
         bar.style.width = `${(scanProgress * 100).toFixed(0)}%`;
 
-        if (scanProgress < 0.5) {
-          scanPhaseText = 'Leyendo estructura, liquidez y EMAs...';
-        } else {
-          scanPhaseText = 'Verificando MACD, RSI, ATR y vela...';
-        }
-
-        meta.textContent = `${scanPhaseText}`;
+        scanPhaseText = scanProgress < 0.5
+          ? 'Analizando estructura, liquidez y EMAs...'
+          : 'Calculando MACD, RSI, ATR y velas...';
+        meta.textContent = scanPhaseText;
         refreshLiveFeed();
 
         if (scanProgress >= 1) {
@@ -731,12 +555,12 @@
           isScanning = false;
           scanProgress = 0;
           btn.disabled = false;
-          btn.textContent = 'ESCANEAR GRÁFICO (~1.5S)';
+          btn.textContent = 'ANALIZAR GRÁFICO';
 
-          const result = computeFullAnalysis();
+          latestDirection = predictDirectionDeep();
           hasScanResult = true;
-          latestScan = result;
-          renderScanResult(result);
+          meta.textContent = 'Análisis listo.';
+          renderOnlyDirection(latestDirection);
           refreshLiveFeed();
         }
       }, 60);
@@ -747,21 +571,16 @@
       isScanning = false;
       scanProgress = 0;
       hasScanResult = false;
-      latestScan = null;
+      latestDirection = null;
 
       document.getElementById('scanBtn').disabled = false;
-      document.getElementById('scanBtn').textContent = 'ESCANEAR GRÁFICO (~1.5S)';
+      document.getElementById('scanBtn').textContent = 'ANALIZAR GRÁFICO';
       document.getElementById('scanProgress').style.width = '0%';
       document.getElementById('status').textContent = 'Cargando...';
-      document.getElementById('entryPill').textContent = 'DECISIÓN: SIN ESCANEAR';
-      document.getElementById('entryPill').className = 'entry-pill entry-no';
-      document.getElementById('biasTag').textContent = 'LECTURA: PENDIENTE';
-      document.getElementById('signalText').textContent = 'PULSA "ESCANEAR GRÁFICO (~1.5S)"';
-      document.getElementById('signalText').className = 'signal wait';
-      document.getElementById('signalSub').textContent = 'El escáner revisará estructura, liquidez, momentum y velas antes de responder.';
-      document.getElementById('patternBox').innerHTML = '<strong>Patrón y Liquidez:</strong> Esperando escaneo del gráfico.';
-      document.getElementById('reasonsList').innerHTML = '';
-      document.getElementById('scanMeta').textContent = 'Pulsa el botón para escanear el gráfico y decidir si ENTRAR o NO ENTRAR.';
+      document.getElementById('scanMeta').textContent = 'Pulsa el botón para analizar el mercado.';
+      const sig = document.getElementById('signalText');
+      sig.textContent = 'LISTO PARA ANALIZAR';
+      sig.className = 'signal wait';
 
       const symbol = document.getElementById('symbol').value;
       const interval = document.getElementById('interval').value;
