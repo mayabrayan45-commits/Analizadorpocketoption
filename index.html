@@ -28,6 +28,21 @@
       width: 100%; padding: 9px; border-radius: 10px; border: 1px solid var(--border);
       background: #0b1120; color: var(--text); font-size: 0.9rem;
     }
+    .scan-btn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 12px 14px;
+      border-radius: 11px;
+      border: 1px solid #38bdf8;
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: #ffffff;
+      font-size: 0.95rem;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+    }
+    .scan-btn:active { transform: scale(0.99); opacity: 0.92; }
+    .scan-meta { font-size: 0.76rem; color: var(--muted); text-align: center; margin-top: 6px; }
     .price-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
     .price { font-size: 1.55rem; font-weight: 800; letter-spacing: -0.5px; }
     .timer { font-size: 0.85rem; color: var(--amber); font-weight: 700; }
@@ -39,6 +54,9 @@
     .metric-label { font-size: 0.68rem; color: var(--muted); }
     .metric-val { font-size: 0.88rem; font-weight: 700; margin-top: 2px; }
     .verdict { text-align: center; padding: 14px; }
+    .entry-pill { display: inline-block; font-size: 0.8rem; font-weight: 900; padding: 4px 12px; border-radius: 99px; margin-bottom: 6px; border: 1px solid var(--border); }
+    .entry-yes { background: rgba(34, 197, 94, 0.15); color: var(--green); border-color: rgba(34, 197, 94, 0.45); }
+    .entry-no { background: rgba(245, 158, 11, 0.15); color: var(--amber); border-color: rgba(245, 158, 11, 0.45); }
     .bias-tag { display: inline-block; font-size: 0.75rem; font-weight: 700; padding: 3px 9px; border-radius: 99px; background: #0b1120; border: 1px solid var(--border); color: var(--blue); margin-bottom: 4px; }
     .signal { font-size: 1.5rem; font-weight: 900; margin: 4px 0; }
     .call { color: var(--green); }
@@ -73,6 +91,8 @@
           <option value="5m">Velas 5 Minutos (5m)</option>
         </select>
       </div>
+      <button class="scan-btn" id="scanBtn" onclick="readMarketNow()">LEER MERCADO AHORA</button>
+      <div class="scan-meta" id="scanMeta">Toca el botón cuando quieras evaluar si ENTRAR o NO ENTRAR.</div>
     </div>
 
     <div class="card">
@@ -110,10 +130,11 @@
     </div>
 
     <div class="card verdict">
+      <div class="entry-pill entry-no" id="entryPill">DECISIÓN: ESPERANDO LECTURA</div><br />
       <div class="bias-tag" id="biasTag">DIRECCIÓN PROBABLE: EVALUANDO</div>
-      <div class="signal wait" id="signalText">CARGANDO VELAS...</div>
-      <div style="font-size: 0.88rem;" id="signalSub">Analizando velas, medias y niveles clave.</div>
-      <div class="pattern-box" id="patternBox"><strong>Patrón detectado:</strong> Analizando...</div>
+      <div class="signal wait" id="signalText">PULSA "LEER MERCADO AHORA"</div>
+      <div style="font-size: 0.88rem;" id="signalSub">Tú decides en qué momento analizar las velas y los indicadores.</div>
+      <div class="pattern-box" id="patternBox"><strong>Patrón detectado:</strong> Sin lectura activa aún.</div>
       <ul class="reasons" id="reasonsList"></ul>
     </div>
 
@@ -127,6 +148,8 @@
     let ws = null;
     let timerInt = null;
     let currentCloseTime = 0;
+    let hasManualRead = false;
+    let latestSnapshot = null;
 
     async function loadHistory(symbol, interval) {
       const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=80`;
@@ -141,7 +164,7 @@
         closeTime: k[6]
       }));
       currentCloseTime = candles[candles.length - 1].closeTime;
-      updateAll();
+      refreshLiveFeed();
     }
 
     function connectWS(symbol, interval) {
@@ -173,7 +196,7 @@
           candles.push(bar);
           if (candles.length > 80) candles.shift();
         }
-        updateAll();
+        refreshLiveFeed();
       };
 
       ws.onclose = () => {
@@ -223,29 +246,24 @@
       const lowerWick = Math.min(curr.open, curr.close) - curr.low;
       const prevBody = Math.abs(prev.close - prev.open);
 
-      // Envolvente alcista
       if (prev.close < prev.open && curr.close > curr.open &&
           curr.close >= prev.open && curr.open <= prev.close && body > prevBody * 1.05) {
         return { name: 'Envolvente Alcista', bias: 'CALL', pts: 1.5, desc: 'La vela verde absorbe el cuerpo rojo anterior.' };
       }
 
-      // Envolvente bajista
       if (prev.close > prev.open && curr.close < curr.open &&
           curr.open >= prev.close && curr.close <= prev.open && body > prevBody * 1.05) {
         return { name: 'Envolvente Bajista', bias: 'PUT', pts: 1.5, desc: 'La vela roja absorbe el cuerpo verde anterior.' };
       }
 
-      // Martillo / Rechazo inferior fuerte
       if (lowerWick >= body * 1.8 && lowerWick >= range * 0.45 && upperWick <= body * 0.6) {
         return { name: 'Rechazo Inferior (Martillo)', bias: 'CALL', pts: 1.5, desc: 'Fuerte rechazo de compradores en la parte baja.' };
       }
 
-      // Estrella fugaz / Rechazo superior fuerte
       if (upperWick >= body * 1.8 && upperWick >= range * 0.45 && lowerWick <= body * 0.6) {
         return { name: 'Rechazo Superior (Estrella Fugaz)', bias: 'PUT', pts: 1.5, desc: 'Fuerte rechazo de vendedores en la parte alta.' };
       }
 
-      // Vela de indecisión / doji
       if (body <= range * 0.18) {
         return { name: 'Vela de Indecisión (Doji)', bias: 'WAIT', pts: 0, desc: 'Cuerpo pequeño: compradores y vendedores empatados.' };
       }
@@ -294,7 +312,6 @@
       const toY = p => h - pad - ((p - minP) / range) * (h - pad * 2);
       const step = (w - 20) / viewCount;
 
-      // Niveles S/R
       if (sr.resistance && sr.resistance <= maxP && sr.resistance >= minP) {
         const yR = toY(sr.resistance);
         ctx.strokeStyle = 'rgba(239, 68, 68, 0.55)';
@@ -310,7 +327,6 @@
         ctx.setLineDash([]);
       }
 
-      // Velas
       view.forEach((c, idx) => {
         const x = 10 + idx * step + step / 2;
         const isUp = c.close >= c.open;
@@ -334,16 +350,11 @@
       drawLine(ctx, ema50S, startIdx, toY, step, '#a855f7');
     }
 
-    function updateAll() {
-      if (candles.length < 52) return;
+    function computeSnapshot() {
+      if (candles.length < 52) return null;
       const closes = candles.map(c => c.close);
       const last = candles[candles.length - 1];
       const prev = candles[candles.length - 2];
-
-      document.getElementById('livePrice').textContent = last.close.toLocaleString('en-US', {
-        minimumFractionDigits: last.close < 10 ? 3 : 2,
-        maximumFractionDigits: last.close < 10 ? 3 : 2
-      });
 
       const ema9S = calcEMASeries(closes, 9);
       const ema21S = calcEMASeries(closes, 21);
@@ -358,23 +369,20 @@
 
       let callPts = 0, putPts = 0;
       const notes = [];
+      let trendText = 'Mixta / Rango';
 
-      // Tendencia EMA 9 / 21 / 50
       if (e9 > e21 && last.close > e50) {
         callPts += 2;
-        document.getElementById('trendStat').textContent = 'Alcista ↑';
+        trendText = 'Alcista ↑';
         notes.push('EMA 9 > EMA 21 y precio arriba de EMA 50 (sesgo alcista).');
       } else if (e9 < e21 && last.close < e50) {
         putPts += 2;
-        document.getElementById('trendStat').textContent = 'Bajista ↓';
+        trendText = 'Bajista ↓';
         notes.push('EMA 9 < EMA 21 y precio debajo de EMA 50 (sesgo bajista).');
       } else {
-        document.getElementById('trendStat').textContent = 'Mixta / Rango';
         notes.push('Medias mezcladas o sin alineación clara: más riesgo de falsos movimientos.');
       }
 
-      // RSI
-      document.getElementById('rsiStat').textContent = rsi.toFixed(1);
       if (rsi < 30) {
         callPts += 1.5;
         notes.push(`RSI en sobreventa (${rsi.toFixed(1)}): presión vendedora agotada, posible subida.`);
@@ -389,74 +397,145 @@
         notes.push(`RSI (${rsi.toFixed(1)}) respalda impulso bajista.`);
       }
 
-      // Patrón de vela
-      document.getElementById('patternBox').innerHTML = `<strong>Patrón:</strong> ${pat.name} — <span style="color:#cbd5e1;">${pat.desc}</span>`;
-      if (pat.bias === 'CALL') {
-        callPts += pat.pts;
-      } else if (pat.bias === 'PUT') {
-        putPts += pat.pts;
-      }
+      if (pat.bias === 'CALL') callPts += pat.pts;
+      else if (pat.bias === 'PUT') putPts += pat.pts;
 
-      // Soporte / Resistencia
       const rangeSR = (sr.resistance && sr.support && sr.resistance > sr.support) ? (sr.resistance - sr.support) : 1;
       const nearRes = sr.resistance && ((sr.resistance - last.close) / rangeSR) < 0.08;
       const nearSup = sr.support && ((last.close - sr.support) / rangeSR) < 0.08;
 
+      let srText = 'Zona Media';
       if (nearRes) {
         putPts += 1;
-        document.getElementById('srStat').textContent = 'En Resistencia';
+        srText = 'En Resistencia';
         notes.push('Precio cerca de techo/resistencia reciente: cuidado con comprar arriba.');
       } else if (nearSup) {
         callPts += 1;
-        document.getElementById('srStat').textContent = 'En Soporte';
+        srText = 'En Soporte';
         notes.push('Precio cerca de piso/soporte reciente: zona de reacción potencial.');
-      } else {
-        document.getElementById('srStat').textContent = 'Zona Media';
       }
 
-      // Dirección probable (orientación de lectura)
-      const biasTag = document.getElementById('biasTag');
+      let biasLabel = 'DIRECCIÓN PROBABLE: LATERAL / INDEFINIDA';
+      let biasColor = '#f59e0b';
       if (callPts > putPts + 0.5) {
-        biasTag.textContent = 'DIRECCIÓN PROBABLE: SUBIR (ALCISTA)';
-        biasTag.style.color = '#22c55e';
+        biasLabel = 'DIRECCIÓN PROBABLE: SUBIR (ALCISTA)';
+        biasColor = '#22c55e';
       } else if (putPts > callPts + 0.5) {
-        biasTag.textContent = 'DIRECCIÓN PROBABLE: BAJAR (BAJISTA)';
-        biasTag.style.color = '#ef4444';
-      } else {
-        biasTag.textContent = 'DIRECCIÓN PROBABLE: LATERAL / INDEFINIDA';
-        biasTag.style.color = '#f59e0b';
+        biasLabel = 'DIRECCIÓN PROBABLE: BAJAR (BAJISTA)';
+        biasColor = '#ef4444';
       }
 
-      // Señal principal
-      const sigEl = document.getElementById('signalText');
-      const subEl = document.getElementById('signalSub');
-      const confEl = document.getElementById('confStat');
+      let canEnter = false;
+      let signalTitle = 'NO ENTRAR · ESPERAR';
+      let signalClass = 'signal wait';
+      let signalSub = 'No hay confluencia suficiente en este momento; mejor no entrar.';
+      let confText = `${Math.max(callPts, putPts).toFixed(1)} pts`;
+      let pillText = 'DECISIÓN: NO ENTRAR';
+      let pillClass = 'entry-pill entry-no';
 
       if (callPts >= 3.5 && callPts - putPts >= 1.5) {
-        sigEl.textContent = 'VA A SUBIR · CALL (COMPRA)';
-        sigEl.className = 'signal call';
-        subEl.textContent = 'Confluencia alcista favorable al cierre de vela.';
-        confEl.textContent = `${callPts.toFixed(1)} pts ↑`;
+        canEnter = true;
+        signalTitle = 'ENTRAR · SUBE (CALL)';
+        signalClass = 'signal call';
+        signalSub = 'Confluencia alcista favorable para entrada CALL.';
+        confText = `${callPts.toFixed(1)} pts ↑`;
+        pillText = 'DECISIÓN: SÍ ENTRAR (CALL)';
+        pillClass = 'entry-pill entry-yes';
       } else if (putPts >= 3.5 && putPts - callPts >= 1.5) {
-        sigEl.textContent = 'VA A BAJAR · PUT (VENTA)';
-        sigEl.className = 'signal put';
-        subEl.textContent = 'Confluencia bajista favorable al cierre de vela.';
-        confEl.textContent = `${putPts.toFixed(1)} pts ↓`;
-      } else {
-        sigEl.textContent = 'ESPERAR / NO ENTRAR';
-        sigEl.className = 'signal wait';
-        subEl.textContent = 'Falta confluencia o hay choque de señales; mejor esperar.';
-        confEl.textContent = `${Math.max(callPts, putPts).toFixed(1)} pts`;
+        canEnter = true;
+        signalTitle = 'ENTRAR · BAJA (PUT)';
+        signalClass = 'signal put';
+        signalSub = 'Confluencia bajista favorable para entrada PUT.';
+        confText = `${putPts.toFixed(1)} pts ↓`;
+        pillText = 'DECISIÓN: SÍ ENTRAR (PUT)';
+        pillClass = 'entry-pill entry-yes';
       }
 
-      document.getElementById('reasonsList').innerHTML = notes.map(n => `<li>${n}</li>`).join('');
+      return {
+        ema9S, ema21S, ema50S, sr,
+        trendText, rsiText: rsi.toFixed(1), srText, confText,
+        pat, biasLabel, biasColor,
+        canEnter, signalTitle, signalClass, signalSub, pillText, pillClass,
+        notes,
+        price: last.close,
+        readAt: new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      };
+    }
+
+    function renderSnapshot(snap) {
+      if (!snap) return;
+      document.getElementById('trendStat').textContent = snap.trendText;
+      document.getElementById('rsiStat').textContent = snap.rsiText;
+      document.getElementById('srStat').textContent = snap.srText;
+      document.getElementById('confStat').textContent = snap.confText;
+
+      const pill = document.getElementById('entryPill');
+      pill.textContent = snap.pillText;
+      pill.className = snap.pillClass;
+
+      const biasTag = document.getElementById('biasTag');
+      biasTag.textContent = snap.biasLabel;
+      biasTag.style.color = snap.biasColor;
+
+      const sigEl = document.getElementById('signalText');
+      sigEl.textContent = snap.signalTitle;
+      sigEl.className = snap.signalClass;
+
+      document.getElementById('signalSub').textContent = snap.signalSub;
+      document.getElementById('patternBox').innerHTML = `<strong>Patrón:</strong> ${snap.pat.name} — <span style="color:#cbd5e1;">${snap.pat.desc}</span>`;
+      document.getElementById('reasonsList').innerHTML = snap.notes.map(n => `<li>${n}</li>`).join('');
+      document.getElementById('scanMeta').textContent = `Última lectura: ${snap.readAt} al precio ${snap.price.toLocaleString('en-US', {
+        minimumFractionDigits: snap.price < 10 ? 3 : 2,
+        maximumFractionDigits: snap.price < 10 ? 3 : 2
+      })}`;
+    }
+
+    function refreshLiveFeed() {
+      if (candles.length < 52) return;
+      const closes = candles.map(c => c.close);
+      const last = candles[candles.length - 1];
+
+      document.getElementById('livePrice').textContent = last.close.toLocaleString('en-US', {
+        minimumFractionDigits: last.close < 10 ? 3 : 2,
+        maximumFractionDigits: last.close < 10 ? 3 : 2
+      });
+
+      const ema9S = calcEMASeries(closes, 9);
+      const ema21S = calcEMASeries(closes, 21);
+      const ema50S = calcEMASeries(closes, 50);
+      const sr = getSupportResistance(candles);
       drawChart(ema9S, ema21S, ema50S, sr);
+
+      if (hasManualRead && latestSnapshot) {
+        renderSnapshot(latestSnapshot);
+      }
+    }
+
+    function readMarketNow() {
+      const snap = computeSnapshot();
+      if (!snap) {
+        document.getElementById('scanMeta').textContent = 'Aún cargando velas históricas, espera un segundo...';
+        return;
+      }
+      hasManualRead = true;
+      latestSnapshot = snap;
+      renderSnapshot(latestSnapshot);
     }
 
     async function restartFeed() {
       const symbol = document.getElementById('symbol').value;
       const interval = document.getElementById('interval').value;
+      hasManualRead = false;
+      latestSnapshot = null;
       document.getElementById('status').textContent = 'Cargando...';
+      document.getElementById('entryPill').textContent = 'DECISIÓN: ESPERANDO LECTURA';
+      document.getElementById('entryPill').className = 'entry-pill entry-no';
+      document.getElementById('signalText').textContent = 'PULSA "LEER MERCADO AHORA"';
+      document.getElementById('signalText').className = 'signal wait';
+      document.getElementById('signalSub').textContent = 'Tú decides en qué momento analizar las velas y los indicadores.';
+      document.getElementById('patternBox').innerHTML = '<strong>Patrón detectado:</strong> Sin lectura activa aún.';
+      document.getElementById('reasonsList').innerHTML = '';
+      document.getElementById('scanMeta').textContent = 'Toca el botón cuando quieras evaluar si ENTRAR o NO ENTRAR.';
       await loadHistory(symbol, interval);
       connectWS(symbol, interval);
     }
