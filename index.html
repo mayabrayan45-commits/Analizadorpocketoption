@@ -11,7 +11,8 @@
 body{margin:0 auto;max-width:640px;padding:12px;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif}
 .row{display:flex;gap:8px;margin-bottom:8px}
 select{flex:1;padding:10px;border-radius:8px;border:1px solid var(--mut);background:var(--card);color:var(--fg);font-size:16px}
-button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--up);color:#fff;font-size:17px;font-weight:600;margin-bottom:8px}
+button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--up);color:#fff;font-size:17px;font-weight:600;margin-bottom:8px;cursor:pointer}
+button:active{opacity:.9}
 .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:8px}
 .mut{color:var(--mut);font-size:13px}
 #price{font-size:26px;font-weight:600}
@@ -25,8 +26,17 @@ canvas{width:100%;height:220px;display:block}
 </head>
 <body>
 <div class="row">
-  <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>LTCUSDT</option><option>XRPUSDT</option><option>BNBUSDT</option></select>
-  <select id="tf"><option value="1m">1 min</option><option value="5m">5 min</option></select>
+  <select id="sym">
+    <option>BTCUSDT</option>
+    <option>ETHUSDT</option>
+    <option>LTCUSDT</option>
+    <option>XRPUSDT</option>
+    <option>BNBUSDT</option>
+  </select>
+  <select id="tf">
+    <option value="1m">1 min</option>
+    <option value="5m">5 min</option>
+  </select>
 </div>
 <div class="card">
   <div class="mut"><span id="st">conectando…</span> · cierra en <span id="cd">--</span>s</div>
@@ -56,28 +66,56 @@ canvas{width:100%;height:220px;display:block}
 <script>
 const $=id=>document.getElementById(id);
 const BE=1/1.85;
-let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0,STATS=null;
+let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0,STATS=null,abortCtrl=null;
 
 // PURE-START
-function emaS(a,n){const k=2/(n+1),o=[a[0]];for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));return o;}
-function rsiS(c,n=14){
-  const o=new Array(c.length).fill(null);if(c.length<=n)return o;
-  let g=0,l=0;
-  for(let i=1;i<=n;i++){const d=c[i]-c[i-1];d>0?g+=d:l-=d;}
-  g/=n;l/=n;o[n]=l===0?100:100-100/(1+g/l);
-  for(let i=n+1;i<c.length;i++){const d=c[i]-c[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;o[i]=l===0?100:100-100/(1+g/l);}
+function emaS(a,n){
+  if(!a.length)return[];
+  const k=2/(n+1),o=[a[0]];
+  for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));
   return o;
 }
-function wl(w,n){if(!n)return 0;const p=w/n,z=1.96;return(p+z*z/(2*n)-z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n)))/(1+z*z/n);}
+function rsiS(c,n=14){
+  const o=new Array(c.length).fill(null);
+  if(c.length<=n)return o;
+  let g=0,l=0;
+  for(let i=1;i<=n;i++){const d=c[i]-c[i-1];d>0?g+=d:l-=d;}
+  g/=n;l/=n;
+  o[n]=l===0?100:100-100/(1+g/l);
+  for(let i=n+1;i<c.length;i++){
+    const d=c[i]-c[i-1];
+    g=(g*(n-1)+Math.max(d,0))/n;
+    l=(l*(n-1)+Math.max(-d,0))/n;
+    o[i]=l===0?100:100-100/(1+g/l);
+  }
+  return o;
+}
+function wl(w,n){
+  if(!n)return 0;
+  const p=w/n,z=1.96;
+  return(p+z*z/(2*n)-z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n)))/(1+z*z/n);
+}
 function build(cs){
   const n=cs.length,c=cs.map(x=>x.c),o=cs.map(x=>x.o),h=cs.map(x=>x.h),l=cs.map(x=>x.l);
   const R14=rsiS(c,14),R2=rsiS(c,2),e9=emaS(c,9),e21=emaS(c,21),e12=emaS(c,12),e26=emaS(c,26);
   const m=e12.map((v,i)=>v-e26[i]),sg=emaS(m,9);
   const mu=[],sd=[],hh=[],ll=[],K=[];
   for(let i=0;i<n;i++){
-    if(i>=19){let s=0;for(let j=i-19;j<=i;j++)s+=c[j];const a=s/20;let q=0;for(let j=i-19;j<=i;j++)q+=(c[j]-a)*(c[j]-a);mu[i]=a;sd[i]=Math.sqrt(q/20);}
-    if(i>=20){let mx=-Infinity,mn=Infinity;for(let j=i-20;j<i;j++){mx=Math.max(mx,h[j]);mn=Math.min(mn,l[j]);}hh[i]=mx;ll[i]=mn;}
-    if(i>=13){let mx=-Infinity,mn=Infinity;for(let j=i-13;j<=i;j++){mx=Math.max(mx,h[j]);mn=Math.min(mn,l[j]);}K[i]=mx===mn?50:100*(c[i]-mn)/(mx-mn);}
+    if(i>=19){
+      let s=0;for(let j=i-19;j<=i;j++)s+=c[j];const a=s/20;
+      let q=0;for(let j=i-19;j<=i;j++)q+=(c[j]-a)*(c[j]-a);
+      mu[i]=a;sd[i]=Math.sqrt(q/20);
+    }
+    if(i>=20){
+      let mx=-Infinity,mn=Infinity;
+      for(let j=i-20;j<i;j++){mx=Math.max(mx,h[j]);mn=Math.min(mn,l[j]);}
+      hh[i]=mx;ll[i]=mn;
+    }
+    if(i>=13){
+      let mx=-Infinity,mn=Infinity;
+      for(let j=i-13;j<=i;j++){mx=Math.max(mx,h[j]);mn=Math.min(mn,l[j]);}
+      K[i]=mx===mn?50:100*(c[i]-mn)/(mx-mn);
+    }
   }
   const Ks=i=>(i>=15&&K[i-2]!==undefined)?(K[i]+K[i-1]+K[i-2])/3:null;
   const bull=i=>i>=1&&c[i-1]<o[i-1]&&c[i]>o[i]&&c[i]>=o[i-1]&&o[i]<=c[i-1];
@@ -104,38 +142,48 @@ function evalAll(cs){
     for(let i=40;i<n-1;i++){
       const d=s.f(i);if(!d)continue;
       const x=Math.sign(cs[i+1].c-cs[i+1].o);if(!x)continue;
-      const b=i<cut?tr:te;x===d?b.w++:b.l++;
+      const b=i<cut?tr:te;
+      x===d?b.w++:b.l++;
     }
     const nt=tr.w+tr.l;
-    return{name:s.name,tr,te,score:nt>=30?tr.w/nt:0};
+    return{name:s.name,tr,te,score:nt>=40?tr.w/nt:0};
   });
 }
 function grade(te){
   const n=te.w+te.l;
-  if(n<30)return["Pocos datos en la prueba: calidad desconocida","mut"];
+  if(n<30)return["Pocos datos en la prueba: calidad desconocida","mut",0];
   const wr=100*te.w/n,lb=100*wl(te.w,n);
-  if(lb>=BE*100)return["Calidad alta: superó el equilibrio en la prueba ("+wr.toFixed(1)+"%, "+n+" ops)","up"];
-  if(wr>=BE*100)return["Calidad dudosa: acertó "+wr.toFixed(1)+"% en la prueba ("+n+" ops), sin certeza","mut"];
-  return["Calidad baja: solo "+wr.toFixed(1)+"% en la prueba ("+n+" ops). No entres con dinero real","dn"];
+  if(lb>=BE*100)return["Calidad alta: superó el equilibrio en la prueba ("+wr.toFixed(1)+"%, "+n+" ops)","up",2];
+  if(wr>=BE*100)return["Calidad dudosa: acertó "+wr.toFixed(1)+"% en la prueba ("+n+" ops), sin certeza","mut",1];
+  return["Calidad baja: solo "+wr.toFixed(1)+"% en la prueba ("+n+" ops). No entres con dinero real","dn",0];
 }
 // PURE-END
 
-function toC(k){return{t:k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],ct:k[6]};}
+function toC(k){return{t:+k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],ct:+k[6]};}
 
 function onClose(c){
-  closed.push(c);if(closed.length>300)closed.shift();
+  if(closed.length && closed[closed.length-1].t===c.t){
+    closed[closed.length-1]=c;
+  }else{
+    closed.push(c);
+    if(closed.length>300)closed.shift();
+  }
   const keep=[];
   for(const s of pending){
-    if(s.t<c.t){
+    if(c.t>s.t){
       const dir=Math.sign(c.c-c.o);
       if(dir!==0){
-        const win=dir===s.d;win?W++:L++;
+        const win=dir===s.d;
+        win?W++:L++;
         const d=document.createElement("div");
         d.className=win?"up":"dn";
         d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+" · "+s.name;
-        $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
+        $("log").prepend(d);
+        while($("log").children.length>8)$("log").lastChild.remove();
       }
-    }else keep.push(s);
+    }else{
+      keep.push(s);
+    }
   }
   pending=keep;
   const n=W+L;
@@ -145,47 +193,74 @@ function onClose(c){
 function analizar(){
   const sg=$("sig"),vl=$("votes");
   vl.textContent="";
-  if(closed.length<40){sg.textContent="Aún no hay suficientes velas";sg.className="";return;}
+  if(closed.length<40){
+    sg.textContent="Aún no hay suficientes velas";
+    sg.className="";
+    return;
+  }
   const S=build(closed),i=closed.length-1;
   const r=rsiS(closed.map(x=>x.c),14),rv=r[r.length-1];
   $("rsi").textContent=rv===null?"--":rv.toFixed(1);
   const vs=S.map(s=>({name:s.name,d:s.f(i)})),fire=vs.filter(v=>v.d);
   const find=nm=>STATS&&STATS.find(y=>y.name===nm);
-  const sc=nm=>{const x=find(nm);return x?x.score:0;};
+  const rankKey=nm=>{
+    const st=find(nm);
+    if(!st)return -1;
+    const g=grade(st.te)[2];
+    const teN=st.te.w+st.te.l;
+    const teWr=teN?st.te.w/teN:0;
+    return g*10 + teWr + st.score*0.1;
+  };
   const hora=new Date(closed[i].t).toLocaleTimeString();
-  const add=(t,cls)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;vl.appendChild(d);};
+  const add=(t,cls)=>{
+    const d=document.createElement("div");
+    d.textContent=t;
+    if(cls)d.className=cls;
+    vl.appendChild(d);
+  };
   if(!fire.length){
-    sg.textContent="Neutral: no entrar";sg.className="";
-    $("why").textContent="Ninguna estrategia da dirección en la vela cerrada de las "+hora+".";$("grade").textContent="";
+    sg.textContent="Neutral: no entrar";
+    sg.className="";
+    $("why").textContent="Ninguna estrategia da dirección en la vela cerrada de las "+hora+".";
+    $("grade").textContent="";
   }else{
-    const best=[...fire].sort((a,b)=>sc(b.name)-sc(a.name))[0];
+    const best=[...fire].sort((a,b)=>rankKey(b.name)-rankKey(a.name))[0];
     const agree=fire.filter(x=>x.d===best.d).length,up=best.d===1;
     sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
     sg.className=up?"up":"dn";
     $("why").textContent="Estrategia: "+best.name+" · "+agree+" de "+fire.length+" activas coinciden · vela cerrada de las "+hora;
-    const st=find(best.name),g=st?grade(st.te):["Calculando calidad histórica… vuelve a tocar el botón en unos segundos","mut"];
-    $("grade").textContent=g[0];$("grade").className=g[1];
-    pending=pending.filter(p=>p.t!==closed[i].t);
-    pending.push({d:best.d,t:closed[i].t,name:best.name});
+    const st=find(best.name),g=st?grade(st.te):["Calculando calidad histórica… vuelve a tocar el botón en unos segundos","mut",0];
+    $("grade").textContent=g[0];
+    $("grade").className=g[1];
+    if(!pending.some(p=>p.t===closed[i].t)){
+      pending.push({d:best.d,t:closed[i].t,name:best.name});
+    }
   }
-  [...vs].sort((a,b)=>sc(b.name)-sc(a.name)).forEach(v=>{
-    const st=find(v.name),n=st?st.te.w+st.te.l:0,pr=n?" · prueba "+(100*st.te.w/n).toFixed(1)+"% ("+n+")":"";
+  [...vs].sort((a,b)=>rankKey(b.name)-rankKey(a.name)).forEach(v=>{
+    const st=find(v.name),n=st?st.te.w+st.te.l:0;
+    const pr=n?" · prueba "+(100*st.te.w/n).toFixed(1)+"% ("+n+")":"";
     add((v.d===1?"▲ CALL":v.d===-1?"▼ PUT":"— sin señal")+" · "+v.name+pr,"mut");
   });
 }
 
 function draw(){
   const cv=$("cv"),dpr=window.devicePixelRatio||1;
-  cv.width=cv.clientWidth*dpr;cv.height=cv.clientHeight*dpr;
-  const x=cv.getContext("2d");x.scale(dpr,dpr);
   const w=cv.clientWidth,h=cv.clientHeight;
+  if(!w||!h)return;
+  cv.width=Math.round(w*dpr);
+  cv.height=Math.round(h*dpr);
+  const x=cv.getContext("2d");
+  x.setTransform(dpr,0,0,dpr,0,0);
+  x.clearRect(0,0,w,h);
   const cs=closed.slice(-60).concat(live?[live]:[]);
   if(cs.length<2)return;
   const hi=Math.max(...cs.map(c=>c.h)),lo=Math.min(...cs.map(c=>c.l)),rg=(hi-lo)||1;
   const Y=v=>h-4-(v-lo)/rg*(h-8),cw=w/cs.length;
   const cu=getComputedStyle(document.documentElement);
+  const upCol=cu.getPropertyValue("--up").trim()||"#2ebd85";
+  const dnCol=cu.getPropertyValue("--dn").trim()||"#f6465d";
   cs.forEach((c,i)=>{
-    const col=c.c>=c.o?cu.getPropertyValue("--up"):cu.getPropertyValue("--dn"),cx=i*cw+cw/2;
+    const col=c.c>=c.o?upCol:dnCol,cx=i*cw+cw/2;
     x.strokeStyle=col;x.fillStyle=col;
     x.beginPath();x.moveTo(cx,Y(c.h));x.lineTo(cx,Y(c.l));x.stroke();
     const top=Y(Math.max(c.o,c.c)),bh=Math.max(1,Math.abs(Y(c.o)-Y(c.c)));
@@ -193,64 +268,141 @@ function draw(){
   });
 }
 
-async function histInfo(id,sym,tf,host){
-  const el=$("hist");el.textContent="calculando…";
-  let all=[],end=Date.now();
+async function histInfo(id,sym,tf,host,signal){
+  const el=$("hist");
+  el.textContent="calculando…";
+  const map=new Map();
+  let end=Date.now();
   try{
     for(let j=0;j<5;j++){
-      const r=await fetch(host[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=1000&endTime="+end);
-      const k=(await r.json()).map(toC);
-      if(!k.length)break;
-      all=k.concat(all);end=k[0].t-1;
+      if(signal.aborted||id!==cfg)return;
+      const r=await fetch(host[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=1000&endTime="+end,{signal});
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const raw=await r.json();
+      if(!Array.isArray(raw)||!raw.length)break;
+      const k=raw.map(toC);
+      for(const c of k){
+        if(c.ct<Date.now() && !map.has(c.t))map.set(c.t,c);
+      }
+      end=k[0].t-1;
     }
-  }catch(e){if(id===cfg)el.textContent="No se pudo calcular ("+e.message+")";return;}
-  if(id!==cfg)return;
-  all=all.filter(c=>c.ct<Date.now());
-  if(all.length<500){el.textContent="Pocos datos para calcular.";return;}
+  }catch(e){
+    if(e.name==="AbortError"||id!==cfg)return;
+    el.textContent="No se pudo calcular ("+e.message+")";
+    return;
+  }
+  if(signal.aborted||id!==cfg)return;
+  const all=[...map.values()].sort((a,b)=>a.t-b.t);
+  if(all.length<500){
+    el.textContent="Pocos datos para calcular.";
+    return;
+  }
   STATS=evalAll(all);
-  const rows=[...STATS].sort((a,b)=>b.score-a.score);
+  const rows=[...STATS].sort((a,b)=>{
+    const ga=grade(a.te)[2],gb=grade(b.te)[2];
+    if(gb!==ga)return gb-ga;
+    const na=a.te.w+a.te.l,nb=b.te.w+b.te.l;
+    const wa=na?a.te.w/na:0,wb=nb?b.te.w/nb:0;
+    return wb-wa || b.score-a.score;
+  });
   el.textContent="";
-  const add=(t,cls,css)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;if(css)d.style.cssText=css;el.appendChild(d);};
+  const add=(t,cls,css)=>{
+    const d=document.createElement("div");
+    d.textContent=t;
+    if(cls)d.className=cls;
+    if(css)d.style.cssText=css;
+    el.appendChild(d);
+  };
   const pc=b=>{const n=b.w+b.l;return n?(100*b.w/n).toFixed(1)+"% ("+n+")":"sin datos";};
   let pass=0;
-  rows.forEach(s=>{const g=grade(s.te);if(g[1]==="up")pass++;});
-  add(pass===0?"⚠ Ninguna estrategia superó el equilibrio (54,05%) en la prueba: ninguna entrada es fiable ahora.":pass+" estrategia(s) superaron el equilibrio en la prueba; eso no garantiza que se repita.",pass===0?"dn":"up","font-weight:600;margin-bottom:4px");
-  rows.forEach(s=>{const g=grade(s.te);add(s.name+" · entrenamiento "+pc(s.tr)+" · prueba "+pc(s.te),g[1]);});
+  rows.forEach(s=>{if(grade(s.te)[1]==="up")pass++;});
+  add(
+    pass===0
+      ?"⚠ Ninguna estrategia superó el equilibrio (54,05%) en la prueba: ninguna entrada es fiable ahora."
+      :pass+" estrategia(s) superaron el equilibrio en la prueba; eso no garantiza que se repita.",
+    pass===0?"dn":"up",
+    "font-weight:600;margin-bottom:4px"
+  );
+  rows.forEach(s=>{
+    const g=grade(s.te);
+    add(s.name+" · entrenamiento "+pc(s.tr)+" · prueba "+pc(s.te),g[1]);
+  });
 }
 
 async function start(){
   const id=++cfg,sym=$("sym").value,tf=$("tf").value;
-  if(ws){ws.onclose=null;ws.close();}
+  if(abortCtrl)abortCtrl.abort();
+  abortCtrl=new AbortController();
+  const {signal}=abortCtrl;
+  if(ws){ws.onclose=null;ws.onmessage=null;ws.close();ws=null;}
   closed=[];live=null;pending=[];W=0;L=0;STATS=null;
-  $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
-  $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("grade").textContent="";$("votes").textContent="";
+  $("log").textContent="";
+  $("score").textContent="Sin operaciones simuladas todavía";
+  $("sig").textContent="Toca «Analizar mercado ahora»";
+  $("sig").className="";
+  $("grade").textContent="";
+  $("votes").textContent="";
+  $("cd").textContent="--";
   $("st").textContent="conectando…";
-  const HOSTS=[["https://data-api.binance.vision","wss://data-stream.binance.vision"],["https://api.binance.com","wss://stream.binance.com:9443"]];
+  const HOSTS=[
+    ["https://data-api.binance.vision","wss://data-stream.binance.vision"],
+    ["https://api.binance.com","wss://stream.binance.com:9443"]
+  ];
   let host=null,err="";
   for(const h of HOSTS){
     try{
-      const r=await fetch(h[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=200");
+      const r=await fetch(h[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=200",{signal});
       if(!r.ok)throw new Error("HTTP "+r.status);
-      const k=(await r.json()).map(toC);
+      const raw=await r.json();
+      if(!Array.isArray(raw)||raw.length<2)throw new Error("Respuesta inválida");
       if(id!==cfg)return;
-      live=k.pop();closed=k;host=h;break;
-    }catch(e){err=e.message;}
+      const k=raw.map(toC);
+      live=k.pop();
+      closed=k;
+      host=h;
+      break;
+    }catch(e){
+      if(e.name==="AbortError"||id!==cfg)return;
+      err=e.message;
+    }
   }
-  if(!host){$("st").textContent="error cargando historial ("+err+")";return;}
-  const r0=rsiS(closed.map(x=>x.c),14),v0=r0[r0.length-1];$("rsi").textContent=v0===null?"--":v0.toFixed(1);
-  histInfo(id,sym,tf,host);
+  if(!host){
+    $("st").textContent="error cargando historial ("+err+")";
+    return;
+  }
+  const r0=rsiS(closed.map(x=>x.c),14),v0=r0[r0.length-1];
+  $("rsi").textContent=v0===null?"--":v0.toFixed(1);
+  if(live && live.c)$("price").textContent=live.c.toLocaleString("en-US",{maximumFractionDigits:5});
+  draw();
+  histInfo(id,sym,tf,host,signal);
   ws=new WebSocket(host[1]+"/ws/"+sym.toLowerCase()+"@kline_"+tf);
-  ws.onopen=()=>{$("st").textContent="● en vivo"};
+  ws.onopen=()=>{if(id===cfg)$("st").textContent="● en vivo";};
   ws.onmessage=m=>{
-    const k=JSON.parse(m.data).k,c=toC([k.t,k.o,k.h,k.l,k.c,0,k.T]);
+    if(id!==cfg)return;
+    let data;
+    try{data=JSON.parse(m.data);}catch{return;}
+    if(!data||!data.k)return;
+    const k=data.k,c=toC([k.t,k.o,k.h,k.l,k.c,0,k.T]);
     $("price").textContent=c.c.toLocaleString("en-US",{maximumFractionDigits:5});
     if(k.x){live=null;onClose(c);}else live=c;
     draw();
   };
-  ws.onclose=()=>{if(id===cfg){$("st").textContent="reconectando…";setTimeout(()=>{if(id===cfg)start();},3000);}};
+  ws.onclose=()=>{
+    if(id===cfg){
+      $("st").textContent="reconectando…";
+      setTimeout(()=>{if(id===cfg)start();},3000);
+    }
+  };
 }
-setInterval(()=>{if(live)$("cd").textContent=Math.max(0,Math.round((live.ct-Date.now())/1000));},1000);
-$("sym").onchange=start;$("tf").onchange=start;$("btn").onclick=analizar;
+setInterval(()=>{
+  if(live && live.ct){
+    const sec=Math.max(0,Math.round((live.ct-Date.now())/1000));
+    $("cd").textContent=sec;
+  }
+},1000);
+$("sym").onchange=start;
+$("tf").onchange=start;
+$("btn").onclick=analizar;
 window.onresize=draw;
 start();
 </script>
