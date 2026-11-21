@@ -1,701 +1,156 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Radar Pro - Sube o Baja</title>
-  <style>
-    :root {
-      --bg: #0b1120;
-      --card: #131c31;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --green: #22c55e;
-      --red: #ef4444;
-      --amber: #f59e0b;
-      --blue: #38bdf8;
-      --border: #26334d;
-    }
-    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
-    body { margin: 0; padding: 14px; background: var(--bg); color: var(--text); display: flex; justify-content: center; }
-    .app { width: 100%; max-width: 590px; }
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; }
-    h1 { font-size: 1.08rem; margin: 0; }
-    .header-right { display: flex; align-items: center; gap: 6px; }
-    .badge { font-size: 0.74rem; padding: 4px 9px; border-radius: 99px; background: #1e293b; color: var(--green); border: 1px solid var(--border); font-weight: 700; white-space: nowrap; }
-    .sound-btn {
-      font-size: 0.74rem; padding: 4px 9px; border-radius: 99px;
-      background: #0b1120; color: var(--text); border: 1px solid var(--border);
-      font-weight: 700; cursor: pointer;
-    }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
-    .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    select {
-      width: 100%; padding: 9px; border-radius: 10px; border: 1px solid var(--border);
-      background: #0b1120; color: var(--text); font-size: 0.88rem;
-    }
-    .scan-btn {
-      width: 100%;
-      margin-top: 10px;
-      padding: 13px 14px;
-      border-radius: 11px;
-      border: 1px solid #38bdf8;
-      background: linear-gradient(135deg, #0284c7, #1d4ed8);
-      color: #ffffff;
-      font-size: 0.96rem;
-      font-weight: 800;
-      letter-spacing: 0.4px;
-      cursor: pointer;
-    }
-    .scan-btn:disabled { opacity: 0.65; cursor: not-allowed; }
-    .scan-btn:active:not(:disabled) { transform: scale(0.99); }
-    .progress-wrap {
-      width: 100%; height: 6px; background: #0b1120; border-radius: 99px;
-      overflow: hidden; margin-top: 8px; border: 1px solid var(--border);
-    }
-    .progress-bar {
-      width: 0%; height: 100%; background: linear-gradient(90deg, #38bdf8, #22c55e);
-      transition: width 0.08s linear;
-    }
-    .scan-meta { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 6px; min-height: 18px; }
-    .price-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
-    .price { font-size: 1.52rem; font-weight: 800; letter-spacing: -0.5px; }
-    .timer { font-size: 0.84rem; color: var(--amber); font-weight: 700; }
-    canvas { width: 100%; height: 215px; background: #080d1a; border-radius: 10px; border: 1px solid var(--border); display: block; }
-    .legend { display: flex; gap: 11px; flex-wrap: wrap; font-size: 0.72rem; color: var(--muted); margin-top: 6px; }
-    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
-    .verdict { text-align: center; padding: 22px 14px; transition: box-shadow 0.25s ease, border-color 0.25s ease; }
-    .verdict.flash-up { border-color: var(--green); box-shadow: 0 0 22px rgba(34, 197, 94, 0.28); }
-    .verdict.flash-down { border-color: var(--red); box-shadow: 0 0 22px rgba(239, 68, 68, 0.28); }
-    .signal { font-size: 2.15rem; font-weight: 900; margin: 0; letter-spacing: 0.6px; }
-    .call { color: var(--green); }
-    .put { color: var(--red); }
-    .wait { color: var(--amber); font-size: 1.35rem; }
-    .stats-bar {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 8px;
-      margin-top: 14px;
-    }
-    .stat-pill {
-      background: #0b1120;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 7px 6px;
-      font-size: 0.76rem;
-      color: var(--muted);
-    }
-    .stat-pill strong { display: block; font-size: 0.98rem; margin-top: 2px; color: var(--text); }
-    .stat-pill.up strong { color: var(--green); }
-    .stat-pill.down strong { color: var(--red); }
-    .reset-btn {
-      margin-top: 10px;
-      background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
-      border-radius: 9px;
-      padding: 6px 12px;
-      font-size: 0.76rem;
-      font-weight: 700;
-      cursor: pointer;
-    }
-    .reset-btn:hover { color: var(--text); border-color: var(--blue); }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Señales en vivo</title>
+<style>
+:root{--bg:#0f1115;--fg:#e8e8e8;--mut:#8a8f98;--up:#2ebd85;--dn:#f6465d;--card:#181b22}
+@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--fg:#15181e;--mut:#5d6470;--card:#fff}}
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:640px;padding:12px;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif}
+.row{display:flex;gap:8px;margin-bottom:8px}
+select{flex:1;padding:10px;border-radius:8px;border:1px solid var(--mut);background:var(--card);color:var(--fg);font-size:16px}
+.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:8px}
+.mut{color:var(--mut);font-size:13px}
+#price{font-size:26px;font-weight:600}
+canvas{width:100%;height:220px;display:block}
+#sig{font-size:22px;font-weight:700}
+.up{color:var(--up)}.dn{color:var(--dn)}
+#log div{padding:3px 0;font-size:13px}
+</style>
 </head>
 <body>
-  <div class="app">
-    <div class="header">
-      <h1>Radar Pro</h1>
-      <div class="header-right">
-        <button class="sound-btn" id="soundBtn" onclick="toggleSound()">🔊 Sonido ON</button>
-        <span class="badge" id="status">Conectando...</span>
-      </div>
-    </div>
+<div class="row">
+  <select id="sym"><option>BTCUSDT</option><option>ETHUSDT</option><option>LTCUSDT</option><option>XRPUSDT</option><option>BNBUSDT</option></select>
+  <select id="tf"><option value="1m">1 min</option><option value="5m">5 min</option></select>
+</div>
+<div class="card">
+  <div class="mut"><span id="st">conectando…</span> · cierra en <span id="cd">--</span>s</div>
+  <div id="price">--</div>
+  <canvas id="cv"></canvas>
+</div>
+<div class="card">
+  <div class="mut">Última vela cerrada · RSI(14): <span id="rsi">--</span></div>
+  <div id="sig">Esperando vela…</div>
+  <div class="mut" id="why"></div>
+</div>
+<div class="card">
+  <div class="mut">Marcador de esta sesión (entrada en la apertura de la vela siguiente)</div>
+  <div id="score">Sin operaciones simuladas todavía</div>
+  <div class="mut">Punto de equilibrio con pago 85%: 54,05%. Con menos de 100 operaciones el porcentaje no dice nada.</div>
+  <div id="log"></div>
+</div>
+<div class="mut">Datos públicos de Binance (cripto), no de Pocket Option: los precios pueden diferir un poco. Esta página solo muestra señales, no opera. No es asesoría financiera.</div>
 
-    <div class="card">
-      <div class="controls">
-        <select id="symbol" onchange="restartFeed()">
-          <option value="BTCUSDT">Bitcoin / USD</option>
-          <option value="ETHUSDT">Ethereum / USD</option>
-          <option value="SOLUSDT">Solana / USD</option>
-          <option value="XRPUSDT">XRP / USD</option>
-          <option value="BNBUSDT">BNB / USD</option>
-          <option value="PAXGUSDT">Oro Ref. PAXG / USD</option>
-        </select>
-        <select id="interval" onchange="restartFeed()">
-          <option value="1m">Velas 1 Minuto (1m)</option>
-          <option value="5m">Velas 5 Minutos (5m)</option>
-        </select>
-      </div>
-      <button class="scan-btn" id="scanBtn" onclick="startVisualScan()">ANALIZAR GRÁFICO</button>
-      <div class="progress-wrap">
-        <div class="progress-bar" id="scanProgress"></div>
-      </div>
-      <div class="scan-meta" id="scanMeta">Pulsa el botón para analizar el mercado.</div>
-    </div>
+<script>
+const $=id=>document.getElementById(id);
+let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0;
 
-    <div class="card">
-      <div class="price-row">
-        <div class="price" id="livePrice">--.--</div>
-        <div class="timer" id="candleTimer">Cierre vela: --s</div>
-      </div>
-      <canvas id="chart" width="550" height="215"></canvas>
-      <div class="legend">
-        <span><i class="dot" style="background:#38bdf8;"></i>EMA 9</span>
-        <span><i class="dot" style="background:#f59e0b;"></i>EMA 21</span>
-        <span><i class="dot" style="background:#a855f7;"></i>EMA 50</span>
-        <span><i class="dot" style="background:#22c55e;"></i>Soporte</span>
-        <span><i class="dot" style="background:#ef4444;"></i>Resistencia</span>
-      </div>
-    </div>
+function rsi(cs,n=14){
+  if(cs.length<n+1)return null;
+  let g=0,l=0;
+  for(let i=1;i<=n;i++){const d=cs[i].c-cs[i-1].c;d>0?g+=d:l-=d;}
+  g/=n;l/=n;
+  for(let i=n+1;i<cs.length;i++){const d=cs[i].c-cs[i-1].c;g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;}
+  return l===0?100:100-100/(1+g/l);
+}
+function analyze(cs){
+  const n=cs.length,a=cs[n-1],p=cs[n-2],r=rsi(cs),out=[];
+  if(r===null)return{r,out};
+  const body=Math.abs(a.c-a.o)+1e-12,lo=Math.min(a.o,a.c)-a.l,up=a.h-Math.max(a.o,a.c);
+  if(r<30)out.push(["RSI<30",1]);
+  if(r>70)out.push(["RSI>70",-1]);
+  if(p.c<p.o&&a.c>a.o&&a.c>=p.o&&a.o<=p.c)out.push(["Envolvente alcista",1]);
+  if(p.c>p.o&&a.c<a.o&&a.c<=p.o&&a.o>=p.c)out.push(["Envolvente bajista",-1]);
+  if(lo>2*body&&up<body&&r<35)out.push(["Martillo + RSI<35",1]);
+  if(up>2*body&&lo<body&&r>65)out.push(["Estrella + RSI>65",-1]);
+  return{r,out};
+}
+function toC(k){return{t:k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],ct:k[6]};}
 
-    <div class="card verdict" id="verdictCard">
-      <div class="signal wait" id="signalText">LISTO PARA ANALIZAR</div>
-      <div class="stats-bar">
-        <div class="stat-pill up">SUBE<strong id="countUp">0</strong></div>
-        <div class="stat-pill down">BAJA<strong id="countDown">0</strong></div>
-        <div class="stat-pill">TOTAL<strong id="countTotal">0</strong></div>
-      </div>
-      <button class="reset-btn" onclick="resetStats()">Reiniciar conteo</button>
-    </div>
-  </div>
-
-  <script>
-    let candles = [];
-    let ws = null;
-    let timerInt = null;
-    let currentCloseTime = 0;
-
-    let isScanning = false;
-    let scanProgress = 0;
-    let scanTimer = null;
-    let scanPhaseText = '';
-
-    let hasScanResult = false;
-    let latestDirection = null; // 'SUBE' | 'BAJA'
-    let soundEnabled = true;
-    let audioCtx = null;
-
-    let stats = { up: 0, down: 0 };
-
-    function toggleSound() {
-      soundEnabled = !soundEnabled;
-      document.getElementById('soundBtn').textContent = soundEnabled ? '🔊 Sonido ON' : '🔇 Sonido OFF';
-    }
-
-    function playAlertTone(dir) {
-      if (!soundEnabled) return;
-      try {
-        if (!audioCtx) {
-          const Ctx = window.AudioContext || window.webkitAudioContext;
-          audioCtx = new Ctx();
-        }
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(dir === 'SUBE' ? 660 : 420, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.22);
-
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.23);
-      } catch (_) {}
-    }
-
-    function updateStatsUI() {
-      document.getElementById('countUp').textContent = stats.up;
-      document.getElementById('countDown').textContent = stats.down;
-      document.getElementById('countTotal').textContent = stats.up + stats.down;
-    }
-
-    function resetStats() {
-      stats = { up: 0, down: 0 };
-      updateStatsUI();
-    }
-
-    async function loadHistory(symbol, interval) {
-      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=120`;
-      const res = await fetch(url);
-      const data = await res.json();
-      candles = data.map(k => ({
-        time: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-        closeTime: k[6]
-      }));
-      currentCloseTime = candles[candles.length - 1].closeTime;
-      refreshLiveFeed();
-    }
-
-    function connectWS(symbol, interval) {
-      if (ws) ws.close();
-      const stream = `${symbol.toLowerCase()}@kline_${interval}`;
-      ws = new WebSocket(`wss://stream.binance.com:9443/ws/${stream}`);
-
-      ws.onopen = () => {
-        document.getElementById('status').textContent = 'EN VIVO ●';
-        document.getElementById('status').style.color = '#22c55e';
-      };
-
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-        const k = msg.k;
-        const bar = {
-          time: k.t,
-          open: parseFloat(k.o),
-          high: parseFloat(k.h),
-          low: parseFloat(k.l),
-          close: parseFloat(k.c),
-          closeTime: k.T
-        };
-        currentCloseTime = bar.closeTime;
-
-        if (candles.length && candles[candles.length - 1].time === bar.time) {
-          candles[candles.length - 1] = bar;
-        } else {
-          candles.push(bar);
-          if (candles.length > 120) candles.shift();
-        }
-        refreshLiveFeed();
-      };
-
-      ws.onclose = () => {
-        document.getElementById('status').textContent = 'Reconectando...';
-        document.getElementById('status').style.color = '#f59e0b';
-      };
-    }
-
-    function calcEMASeries(values, period) {
-      if (values.length < period) return new Array(values.length).fill(null);
-      const k = 2 / (period + 1);
-      let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-      const out = new Array(period - 1).fill(null);
-      out.push(ema);
-      for (let i = period; i < values.length; i++) {
-        ema = values[i] * k + ema * (1 - k);
-        out.push(ema);
+function onClose(c){
+  closed.push(c);if(closed.length>300)closed.shift();
+  const keep=[];
+  for(const s of pending){
+    if(s.t<c.t){
+      const dir=Math.sign(c.c-c.o);
+      if(dir!==0){
+        const win=dir===s.d;win?W++:L++;
+        const d=document.createElement("div");
+        d.className=win?"up":"dn";
+        d.textContent=(win?"✔ ":"✘ ")+s.name+" → "+(s.d===1?"CALL":"PUT");
+        $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
       }
-      return out;
-    }
-
-    function calcRSI(closes, period = 14) {
-      if (closes.length <= period) return 50;
-      let gains = 0, losses = 0;
-      for (let i = closes.length - period; i < closes.length; i++) {
-        const diff = closes[i] - closes[i - 1];
-        if (diff >= 0) gains += diff;
-        else losses -= diff;
-      }
-      if (losses === 0) return 100;
-      const rs = (gains / period) / (losses / period);
-      return 100 - (100 / (1 + rs));
-    }
-
-    function calcMACD(closes) {
-      if (closes.length < 30) return { macd: 0, signal: 0, hist: 0, prevHist: 0 };
-      const ema12 = calcEMASeries(closes, 12);
-      const ema26 = calcEMASeries(closes, 26);
-      const macdSeries = [];
-      for (let i = 0; i < closes.length; i++) {
-        if (ema12[i] != null && ema26[i] != null) {
-          macdSeries.push(ema12[i] - ema26[i]);
-        }
-      }
-      if (macdSeries.length < 11) return { macd: 0, signal: 0, hist: 0, prevHist: 0 };
-      const sigSeries = calcEMASeries(macdSeries, 9);
-      const idx = macdSeries.length - 1;
-      const m = macdSeries[idx];
-      const s = sigSeries[idx] ?? m;
-      const prevM = macdSeries[idx - 1];
-      const prevS = sigSeries[idx - 1] ?? prevM;
-      return { macd: m, signal: s, hist: m - s, prevHist: prevM - prevS };
-    }
-
-    function calcATR(list, period = 14) {
-      if (list.length <= period) return 0;
-      const trs = [];
-      for (let i = 1; i < list.length; i++) {
-        const cur = list[i];
-        const prev = list[i - 1];
-        const tr = Math.max(
-          cur.high - cur.low,
-          Math.abs(cur.high - prev.close),
-          Math.abs(cur.low - prev.close)
-        );
-        trs.push(tr);
-      }
-      const recent = trs.slice(-period);
-      return recent.reduce((a, b) => a + b, 0) / recent.length;
-    }
-
-    function analyzeStructureDeep(list) {
-      const w1 = list.slice(-36, -24);
-      const w2 = list.slice(-24, -12);
-      const w3 = list.slice(-12, -1);
-      if (!w1.length || !w2.length || !w3.length) return 0;
-
-      const h1 = Math.max(...w1.map(c => c.high)), l1 = Math.min(...w1.map(c => c.low));
-      const h2 = Math.max(...w2.map(c => c.high)), l2 = Math.min(...w2.map(c => c.low));
-      const h3 = Math.max(...w3.map(c => c.high)), l3 = Math.min(...w3.map(c => c.low));
-
-      let score = 0;
-      if (h2 > h1) score += 0.8; else if (h2 < h1) score -= 0.8;
-      if (l2 > l1) score += 0.8; else if (l2 < l1) score -= 0.8;
-      if (h3 > h2) score += 1.2; else if (h3 < h2) score -= 1.2;
-      if (l3 > l2) score += 1.2; else if (l3 < l2) score -= 1.2;
-      return score;
-    }
-
-    function getSupportResistance(list) {
-      const slice = list.slice(-36, -1);
-      if (!slice.length) return { support: null, resistance: null };
-      return {
-        resistance: Math.max(...slice.map(c => c.high)),
-        support: Math.min(...slice.map(c => c.low))
-      };
-    }
-
-    function analyzeCandlesDeep(list) {
-      const curr = list[list.length - 1];
-      const prev = list[list.length - 2];
-      const prev2 = list[list.length - 3];
-
-      const body = Math.abs(curr.close - curr.open);
-      const range = Math.max(curr.high - curr.low, 0.00001);
-      const upperWick = curr.high - Math.max(curr.open, curr.close);
-      const lowerWick = Math.min(curr.open, curr.close) - curr.low;
-      const prevBody = Math.abs(prev.close - prev.open);
-
-      let score = 0;
-
-      if (curr.close > curr.open) {
-        score += (body / range) * 1.45;
-      } else if (curr.close < curr.open) {
-        score -= (body / range) * 1.45;
-      }
-
-      if (lowerWick > body * 1.5 && lowerWick > upperWick) score += 1.15;
-      if (upperWick > body * 1.5 && upperWick > lowerWick) score -= 1.15;
-
-      if (prev.close < prev.open && curr.close > curr.open && curr.close >= prev.open && body > prevBody) {
-        score += 1.45;
-      }
-      if (prev.close > prev.open && curr.close < curr.open && curr.close <= prev.open && body > prevBody) {
-        score -= 1.45;
-      }
-
-      const up3 = (curr.close > curr.open ? 1 : 0) + (prev.close > prev.open ? 1 : 0) + (prev2.close > prev2.open ? 1 : 0);
-      if (up3 === 3) score += 1.05;
-      if (up3 === 0) score -= 1.05;
-
-      return score;
-    }
-
-    function drawLine(ctx, series, viewStartIdx, toY, step, color) {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      let started = false;
-      for (let i = 0; i < 30; i++) {
-        const idx = viewStartIdx + i;
-        const val = series[idx];
-        if (val == null) continue;
-        const x = 10 + i * step + step / 2;
-        const y = toY(val);
-        if (!started) { ctx.moveTo(x, y); started = true; }
-        else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    }
-
-    function drawChart(ema9S, ema21S, ema50S, sr) {
-      const canvas = document.getElementById('chart');
-      const ctx = canvas.getContext('2d');
-      const w = canvas.width, h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
-
-      const viewCount = Math.min(30, candles.length);
-      const startIdx = candles.length - viewCount;
-      const view = candles.slice(startIdx);
-      if (!view.length) return;
-
-      const highs = view.map(c => c.high);
-      const lows = view.map(c => c.low);
-      if (sr.resistance) highs.push(sr.resistance);
-      if (sr.support) lows.push(sr.support);
-
-      const maxP = Math.max(...highs);
-      const minP = Math.min(...lows);
-      const range = (maxP - minP) || 1;
-      const pad = 16;
-
-      const toY = p => h - pad - ((p - minP) / range) * (h - pad * 2);
-      const step = (w - 20) / viewCount;
-
-      if (sr.resistance && sr.resistance <= maxP && sr.resistance >= minP) {
-        const yR = toY(sr.resistance);
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.55)';
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(10, yR); ctx.lineTo(w - 10, yR); ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      if (sr.support && sr.support <= maxP && sr.support >= minP) {
-        const yS = toY(sr.support);
-        ctx.strokeStyle = 'rgba(34, 197, 94, 0.55)';
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(10, yS); ctx.lineTo(w - 10, yS); ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      view.forEach((c, idx) => {
-        const x = 10 + idx * step + step / 2;
-        const isUp = c.close >= c.open;
-        ctx.strokeStyle = isUp ? '#22c55e' : '#ef4444';
-        ctx.fillStyle = isUp ? '#22c55e' : '#ef4444';
-        ctx.lineWidth = 1.2;
-
-        ctx.beginPath();
-        ctx.moveTo(x, toY(c.high));
-        ctx.lineTo(x, toY(c.low));
-        ctx.stroke();
-
-        const yOpen = toY(c.open);
-        const yClose = toY(c.close);
-        const bodyH = Math.max(Math.abs(yClose - yOpen), 2);
-        ctx.fillRect(x - step * 0.3, Math.min(yOpen, yClose), step * 0.6, bodyH);
-      });
-
-      drawLine(ctx, ema9S, startIdx, toY, step, '#38bdf8');
-      drawLine(ctx, ema21S, startIdx, toY, step, '#f59e0b');
-      drawLine(ctx, ema50S, startIdx, toY, step, '#a855f7');
-
-      if (isScanning) {
-        const scanX = 10 + scanProgress * (w - 20);
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.09)';
-        ctx.fillRect(10, 0, Math.max(0, scanX - 10), h);
-
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(scanX, 0);
-        ctx.lineTo(scanX, h);
-        ctx.stroke();
-
-        ctx.fillStyle = '#e2e8f0';
-        ctx.font = 'bold 12px system-ui, sans-serif';
-        ctx.fillText(scanPhaseText, 16, 20);
-      }
-    }
-
-    function predictDirectionDeep() {
-      if (candles.length < 60) return 'SUBE';
-
-      const closes = candles.map(c => c.close);
-      const last = candles[candles.length - 1];
-
-      const ema9S = calcEMASeries(closes, 9);
-      const ema21S = calcEMASeries(closes, 21);
-      const ema50S = calcEMASeries(closes, 50);
-
-      const e9 = ema9S[ema9S.length - 1];
-      const e21 = ema21S[ema21S.length - 1];
-      const e50 = ema50S[ema50S.length - 1];
-      const prevE9 = ema9S[ema9S.length - 2];
-      const prevE21 = ema21S[ema21S.length - 2];
-
-      const rsi = calcRSI(closes, 14);
-      const macd = calcMACD(closes);
-      const atr = calcATR(candles, 14);
-      const sr = getSupportResistance(candles);
-
-      let netScore = 0;
-
-      netScore += analyzeStructureDeep(candles) * 1.4;
-
-      if (e9 != null && e21 != null && e50 != null) {
-        if (e9 > e21) netScore += 1.45;
-        else if (e9 < e21) netScore -= 1.45;
-
-        if (last.close > e50) netScore += 1.35;
-        else if (last.close < e50) netScore -= 1.35;
-
-        if (prevE9 != null && prevE21 != null) {
-          if (e9 > prevE9 && e21 > prevE21) netScore += 0.85;
-          if (e9 < prevE9 && e21 < prevE21) netScore -= 0.85;
-        }
-      }
-
-      if (macd.macd > macd.signal) netScore += 1.25;
-      else if (macd.macd < macd.signal) netScore -= 1.25;
-
-      if (macd.hist > macd.prevHist) netScore += 0.85;
-      else if (macd.hist < macd.prevHist) netScore -= 0.85;
-
-      if (rsi < 28) netScore += 1.65;
-      else if (rsi > 72) netScore -= 1.65;
-      else netScore += ((rsi - 50) / 25) * 1.15;
-
-      netScore += analyzeCandlesDeep(candles);
-
-      const rangeSR = (sr.resistance && sr.support && sr.resistance > sr.support)
-        ? (sr.resistance - sr.support)
-        : Math.max(atr * 4, 0.0001);
-
-      if (sr.support != null && last.low < sr.support && last.close > sr.support) {
-        netScore += 1.55;
-      }
-      if (sr.resistance != null && last.high > sr.resistance && last.close < sr.resistance) {
-        netScore -= 1.55;
-      }
-
-      const distRes = sr.resistance != null ? (sr.resistance - last.close) / rangeSR : 0.5;
-      const distSup = sr.support != null ? (last.close - sr.support) / rangeSR : 0.5;
-      if (distRes < 0.06 && netScore > 0) netScore -= 1.15;
-      if (distSup < 0.06 && netScore < 0) netScore += 1.15;
-
-      if (Math.abs(netScore) < 0.15) {
-        const last3Diff = closes[closes.length - 1] - closes[closes.length - 4];
-        return last3Diff >= 0 ? 'SUBE' : 'BAJA';
-      }
-
-      return netScore >= 0 ? 'SUBE' : 'BAJA';
-    }
-
-    function renderOnlyDirection(dir, triggerAlert = false) {
-      const el = document.getElementById('signalText');
-      const card = document.getElementById('verdictCard');
-      card.classList.remove('flash-up', 'flash-down');
-
-      if (dir === 'SUBE') {
-        el.textContent = 'VA A SUBIR';
-        el.className = 'signal call';
-        if (triggerAlert) {
-          card.classList.add('flash-up');
-          setTimeout(() => card.classList.remove('flash-up'), 900);
-        }
-      } else {
-        el.textContent = 'VA A BAJAR';
-        el.className = 'signal put';
-        if (triggerAlert) {
-          card.classList.add('flash-down');
-          setTimeout(() => card.classList.remove('flash-down'), 900);
-        }
-      }
-
-      if (triggerAlert) {
-        playAlertTone(dir);
-      }
-    }
-
-    function refreshLiveFeed() {
-      if (candles.length < 60) return;
-      const closes = candles.map(c => c.close);
-      const last = candles[candles.length - 1];
-
-      document.getElementById('livePrice').textContent = last.close.toLocaleString('en-US', {
-        minimumFractionDigits: last.close < 10 ? 3 : 2,
-        maximumFractionDigits: last.close < 10 ? 3 : 2
-      });
-
-      const ema9S = calcEMASeries(closes, 9);
-      const ema21S = calcEMASeries(closes, 21);
-      const ema50S = calcEMASeries(closes, 50);
-      const sr = getSupportResistance(candles);
-      drawChart(ema9S, ema21S, ema50S, sr);
-
-      if (hasScanResult && latestDirection && !isScanning) {
-        renderOnlyDirection(latestDirection, false);
-      }
-    }
-
-    function startVisualScan() {
-      if (isScanning) return;
-      if (candles.length < 60) {
-        document.getElementById('scanMeta').textContent = 'Cargando velas...';
-        return;
-      }
-
-      isScanning = true;
-      scanProgress = 0;
-      const btn = document.getElementById('scanBtn');
-      const bar = document.getElementById('scanProgress');
-      const meta = document.getElementById('scanMeta');
-
-      btn.disabled = true;
-      btn.textContent = 'ANALIZANDO...';
-      bar.style.width = '0%';
-
-      const durationMs = 1500;
-      const startTime = Date.now();
-
-      scanTimer = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        scanProgress = Math.min(1, elapsed / durationMs);
-        bar.style.width = `${(scanProgress * 100).toFixed(0)}%`;
-
-        scanPhaseText = scanProgress < 0.5
-          ? 'Analizando estructura, liquidez y EMAs...'
-          : 'Calculando MACD, RSI, ATR y velas...';
-        meta.textContent = scanPhaseText;
-        refreshLiveFeed();
-
-        if (scanProgress >= 1) {
-          clearInterval(scanTimer);
-          isScanning = false;
-          scanProgress = 0;
-          btn.disabled = false;
-          btn.textContent = 'ANALIZAR GRÁFICO';
-
-          latestDirection = predictDirectionDeep();
-          hasScanResult = true;
-          if (latestDirection === 'SUBE') stats.up += 1;
-          else stats.down += 1;
-          updateStatsUI();
-
-          meta.textContent = 'Análisis listo.';
-          renderOnlyDirection(latestDirection, true);
-          refreshLiveFeed();
-        }
-      }, 60);
-    }
-
-    async function restartFeed() {
-      if (scanTimer) clearInterval(scanTimer);
-      isScanning = false;
-      scanProgress = 0;
-      hasScanResult = false;
-      latestDirection = null;
-
-      document.getElementById('scanBtn').disabled = false;
-      document.getElementById('scanBtn').textContent = 'ANALIZAR GRÁFICO';
-      document.getElementById('scanProgress').style.width = '0%';
-      document.getElementById('status').textContent = 'Cargando...';
-      document.getElementById('scanMeta').textContent = 'Pulsa el botón para analizar el mercado.';
-      document.getElementById('verdictCard').classList.remove('flash-up', 'flash-down');
-      const sig = document.getElementById('signalText');
-      sig.textContent = 'LISTO PARA ANALIZAR';
-      sig.className = 'signal wait';
-
-      const symbol = document.getElementById('symbol').value;
-      const interval = document.getElementById('interval').value;
-      await loadHistory(symbol, interval);
-      connectWS(symbol, interval);
-    }
-
-    timerInt = setInterval(() => {
-      if (!currentCloseTime) return;
-      const left = Math.max(0, Math.floor((currentCloseTime - Date.now()) / 1000));
-      document.getElementById('candleTimer').textContent = `Cierre vela: ${left}s`;
-    }, 500);
-
-    updateStatsUI();
-    restartFeed();
-  </script>
+    }else keep.push(s);
+  }
+  pending=keep;
+  const {r,out}=analyze(closed);
+  $("rsi").textContent=r===null?"--":r.toFixed(1);
+  if(out.length){
+    const dirs=new Set(out.map(o=>o[1]));
+    const s=$("sig");
+    if(dirs.size===1){const up=[...dirs][0]===1;s.textContent=up?"CALL ▲ (sube)":"PUT ▼ (baja)";s.className=up?"up":"dn";}
+    else{s.textContent="Señales contradictorias";s.className="";}
+    $("why").textContent=out.map(o=>o[0]).join(" + ");
+    out.forEach(o=>pending.push({name:o[0],d:o[1],t:c.t}));
+  }else{$("sig").textContent="Sin señal";$("sig").className="";$("why").textContent="";}
+  const n=W+L;
+  if(n)$("score").textContent=n+" operaciones · acierto "+(100*W/n).toFixed(1)+"% (W "+W+" / L "+L+")";
+}
+
+function draw(){
+  const cv=$("cv"),dpr=window.devicePixelRatio||1;
+  cv.width=cv.clientWidth*dpr;cv.height=cv.clientHeight*dpr;
+  const x=cv.getContext("2d");x.scale(dpr,dpr);
+  const w=cv.clientWidth,h=cv.clientHeight;
+  const cs=closed.slice(-60).concat(live?[live]:[]);
+  if(cs.length<2)return;
+  const hi=Math.max(...cs.map(c=>c.h)),lo=Math.min(...cs.map(c=>c.l)),rg=(hi-lo)||1;
+  const Y=v=>h-4-(v-lo)/rg*(h-8),cw=w/cs.length;
+  const cu=getComputedStyle(document.documentElement);
+  cs.forEach((c,i)=>{
+    const col=c.c>=c.o?cu.getPropertyValue("--up"):cu.getPropertyValue("--dn"),cx=i*cw+cw/2;
+    x.strokeStyle=col;x.fillStyle=col;
+    x.beginPath();x.moveTo(cx,Y(c.h));x.lineTo(cx,Y(c.l));x.stroke();
+    const top=Y(Math.max(c.o,c.c)),bh=Math.max(1,Math.abs(Y(c.o)-Y(c.c)));
+    x.fillRect(cx-cw*0.35,top,cw*0.7,bh);
+  });
+}
+
+async function start(){
+  const id=++cfg,sym=$("sym").value,tf=$("tf").value;
+  if(ws){ws.onclose=null;ws.close();}
+  closed=[];live=null;pending=[];W=0;L=0;
+  $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
+  $("sig").textContent="Esperando vela…";$("sig").className="";$("why").textContent="";
+  $("st").textContent="conectando…";
+  const HOSTS=[["https://data-api.binance.vision","wss://data-stream.binance.vision"],["https://api.binance.com","wss://stream.binance.com:9443"]];
+  let host=null,err="";
+  for(const h of HOSTS){
+    try{
+      const r=await fetch(h[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=200");
+      if(!r.ok)throw new Error("HTTP "+r.status);
+      const k=(await r.json()).map(toC);
+      if(id!==cfg)return;
+      live=k.pop();closed=k;host=h;break;
+    }catch(e){err=e.message;}
+  }
+  if(!host){$("st").textContent="error cargando historial ("+err+")";return;}
+  ws=new WebSocket(host[1]+"/ws/"+sym.toLowerCase()+"@kline_"+tf);
+  ws.onopen=()=>{$("st").textContent="● en vivo"};
+  ws.onmessage=m=>{
+    const k=JSON.parse(m.data).k,c=toC([k.t,k.o,k.h,k.l,k.c,0,k.T]);
+    $("price").textContent=c.c.toLocaleString("en-US",{maximumFractionDigits:5});
+    if(k.x){live=null;onClose(c);}else live=c;
+    draw();
+  };
+  ws.onclose=()=>{if(id===cfg){$("st").textContent="reconectando…";setTimeout(()=>{if(id===cfg)start();},3000);}};
+}
+setInterval(()=>{if(live)$("cd").textContent=Math.max(0,Math.round((live.ct-Date.now())/1000));},1000);
+$("sym").onchange=start;$("tf").onchange=start;
+window.onresize=draw;
+start();
+</script>
 </body>
 </html>
