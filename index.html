@@ -11,15 +11,13 @@
 body{margin:0 auto;max-width:640px;padding:12px;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif}
 .row{display:flex;gap:8px;margin-bottom:8px}
 select{flex:1;padding:10px;border-radius:8px;border:1px solid var(--mut);background:var(--card);color:var(--fg);font-size:16px}
-button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--up);color:#fff;font-size:17px;font-weight:600;margin-bottom:8px}
 .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:8px}
 .mut{color:var(--mut);font-size:13px}
 #price{font-size:26px;font-weight:600}
 canvas{width:100%;height:220px;display:block}
-#sig{font-size:22px;font-weight:700}
+#sig{font-size:24px;font-weight:700;padding:6px 0}
 .up{color:var(--up)}.dn{color:var(--dn)}
-#log div,#res div{padding:3px 0}
-#log div{font-size:13px}
+#log div{padding:3px 0;font-size:13px}
 </style>
 </head>
 <body>
@@ -32,25 +30,27 @@ canvas{width:100%;height:220px;display:block}
   <div id="price">--</div>
   <canvas id="cv"></canvas>
 </div>
-<button id="btn">Analizar mercado ahora</button>
-<div class="card" id="res" style="display:none"></div>
 <div class="card">
-  <div class="mut">Última vela cerrada · RSI(14): <span id="rsi">--</span></div>
-  <div id="sig">Esperando vela…</div>
-  <div class="mut" id="why"></div>
+  <div class="mut">Señal automática al cerrar cada vela · RSI(14): <span id="rsi">--</span></div>
+  <div id="sig">Esperando cierre de vela…</div>
+  <div class="mut" id="why">Entra en la apertura de la vela siguiente, con expiración de una vela.</div>
 </div>
 <div class="card">
-  <div class="mut">Marcador de esta sesión (entrada en la apertura de la vela siguiente)</div>
+  <div class="mut">Confiabilidad histórica de esta regla (últimas ~5.000 velas)</div>
+  <div id="hist">calculando…</div>
+</div>
+<div class="card">
+  <div class="mut">Marcador de esta sesión</div>
   <div id="score">Sin operaciones simuladas todavía</div>
   <div class="mut">Punto de equilibrio con pago 85%: 54,05%. Con menos de 100 operaciones el porcentaje no dice nada.</div>
   <div id="log"></div>
 </div>
-<div class="mut">Datos públicos de Binance (cripto), no de Pocket Option: los precios pueden diferir un poco. Esta página solo muestra señales, no opera. No es asesoría financiera.</div>
+<div class="mut">Mantén la pantalla encendida y esta pestaña abierta: en segundo plano el iPhone pausa la conexión. Datos públicos de Binance (cripto), no de Pocket Option: los precios pueden diferir un poco. Esta página solo muestra señales, no opera. No es asesoría financiera.</div>
 
 <script>
 const $=id=>document.getElementById(id);
-const BE=1/1.85;
-let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0,HOST=null;
+const BE=1/1.85,TH=3;
+let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0;
 
 // PURE-START
 function emaS(a,n){const k=2/(n+1),o=[a[0]];for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));return o;}
@@ -86,10 +86,10 @@ function votes(cs){
   };
   return{V};
 }
-function backtest(cs,TH){
+function backtest(cs,th){
   const {V}=votes(cs);let w=0,l=0;
   for(let i=40;i<cs.length-1;i++){
-    const s=V(i).s;if(Math.abs(s)<TH)continue;
+    const s=V(i).s;if(Math.abs(s)<th)continue;
     const x=Math.sign(cs[i+1].c-cs[i+1].o);if(x===0)continue;
     x===Math.sign(s)?w++:l++;
   }
@@ -99,18 +99,6 @@ function wl(w,n){if(!n)return 0;const p=w/n,z=1.96;return(p+z*z/(2*n)-z*Math.sqr
 // PURE-END
 
 function rsi(cs,n=14){const r=rsiS(cs.map(x=>x.c),n);return r[r.length-1];}
-function analyze(cs){
-  const n=cs.length,a=cs[n-1],p=cs[n-2],r=rsi(cs),out=[];
-  if(r===null)return{r,out};
-  const body=Math.abs(a.c-a.o)+1e-12,lo=Math.min(a.o,a.c)-a.l,up=a.h-Math.max(a.o,a.c);
-  if(r<30)out.push(["RSI<30",1]);
-  if(r>70)out.push(["RSI>70",-1]);
-  if(p.c<p.o&&a.c>a.o&&a.c>=p.o&&a.o<=p.c)out.push(["Envolvente alcista",1]);
-  if(p.c>p.o&&a.c<a.o&&a.c<=p.o&&a.o>=p.c)out.push(["Envolvente bajista",-1]);
-  if(lo>2*body&&up<body&&r<35)out.push(["Martillo + RSI<35",1]);
-  if(up>2*body&&lo<body&&r>65)out.push(["Estrella + RSI>65",-1]);
-  return{r,out};
-}
 function toC(k){return{t:k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],ct:k[6]};}
 
 function onClose(c){
@@ -123,22 +111,25 @@ function onClose(c){
         const win=dir===s.d;win?W++:L++;
         const d=document.createElement("div");
         d.className=win?"up":"dn";
-        d.textContent=(win?"✔ ":"✘ ")+s.name+" → "+(s.d===1?"CALL":"PUT");
+        d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+" · puntaje "+s.s;
         $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
       }
     }else keep.push(s);
   }
   pending=keep;
-  const {r,out}=analyze(closed);
+  const r=rsi(closed);
   $("rsi").textContent=r===null?"--":r.toFixed(1);
-  if(out.length){
-    const dirs=new Set(out.map(o=>o[1]));
-    const s=$("sig");
-    if(dirs.size===1){const up=[...dirs][0]===1;s.textContent=up?"CALL ▲ (sube)":"PUT ▼ (baja)";s.className=up?"up":"dn";}
-    else{s.textContent="Señales contradictorias";s.className="";}
-    $("why").textContent=out.map(o=>o[0]).join(" + ");
-    out.forEach(o=>pending.push({name:o[0],d:o[1],t:c.t}));
-  }else{$("sig").textContent="Sin señal";$("sig").className="";$("why").textContent="";}
+  const v=votes(closed).V(closed.length-1),s=v.s,sg=$("sig");
+  if(Math.abs(s)>=TH){
+    const up=s>0;
+    sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
+    sg.className=up?"up":"dn";
+    $("why").textContent="Puntaje "+s+": "+v.d.map(x=>x[0]).join(" · ");
+    pending.push({d:up?1:-1,t:c.t,s:s});
+  }else{
+    sg.textContent="Neutral: no entrar";sg.className="";
+    $("why").textContent="Puntaje "+s+" (hace falta "+TH+" o más, o "+(-TH)+" o menos)";
+  }
   const n=W+L;
   if(n)$("score").textContent=n+" operaciones · acierto "+(100*W/n).toFixed(1)+"% (W "+W+" / L "+L+")";
 }
@@ -162,37 +153,29 @@ function draw(){
   });
 }
 
-async function analizar(){
-  const res=$("res"),sym=$("sym").value,tf=$("tf").value;
-  res.style.display="block";res.textContent="Analizando… (descargando velas)";
-  if(!HOST){res.textContent="Aún no hay conexión con Binance.";return;}
+async function histInfo(id,sym,tf,host){
+  const el=$("hist");el.className="";el.textContent="calculando…";
   let all=[],end=Date.now();
   try{
     for(let j=0;j<5;j++){
-      const r=await fetch(HOST[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=1000&endTime="+end);
+      const r=await fetch(host[0]+"/api/v3/klines?symbol="+sym+"&interval="+tf+"&limit=1000&endTime="+end);
       const k=(await r.json()).map(toC);
       if(!k.length)break;
       all=k.concat(all);end=k[0].t-1;
     }
-  }catch(e){res.textContent="Error descargando datos ("+e.message+")";return;}
+  }catch(e){if(id===cfg)el.textContent="No se pudo calcular ("+e.message+")";return;}
+  if(id!==cfg)return;
   all=all.filter(c=>c.ct<Date.now());
-  if(all.length<100){res.textContent="Pocos datos para analizar.";return;}
-  const last=votes(all).V(all.length-1),s=last.s;
-  const lean=s>=3?["SUBE ▲ (CALL)","up"]:s<=-3?["BAJA ▼ (PUT)","dn"]:["NEUTRAL: sin ventaja ahora",""];
-  const bt=backtest(all,3),n=bt.w+bt.l,wr=n?100*bt.w/n:0,lo=100*wl(bt.w,n);
-  let verdict;
-  if(n<100)verdict="Muy pocas operaciones para concluir nada.";
-  else if(lo<BE*100)verdict="No supera el punto de equilibrio (54,05%): en este periodo no hay ventaja demostrada.";
-  else verdict="Superó el equilibrio en este periodo, pero eso no garantiza que se repita.";
-  res.textContent="";
-  const add=(t,cls,css)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;if(css)d.style.cssText=css;res.appendChild(d);};
-  add("Lectura ahora (puntaje "+s+")");
-  add(lean[0],lean[1],"font-size:22px;font-weight:700");
-  last.d.forEach(x=>add((x[1]>0?"▲ ":"▼ ")+x[0],"mut"));
-  add("Esta misma regla en las últimas "+all.length+" velas de "+tf+": "+n+" operaciones, acierto "+wr.toFixed(1)+"% (límite inferior 95%: "+lo.toFixed(1)+"%).","",
-      "margin-top:8px");
-  add(verdict,"","font-weight:600");
-  add("Combina RSI, EMA, MACD, Bollinger y envolventes. Ninguna combinación predice la siguiente vela con certeza; el porcentaje histórico es lo que cuenta.","mut");
+  if(all.length<100){el.textContent="Pocos datos para calcular.";return;}
+  const bt=backtest(all,TH),n=bt.w+bt.l,wr=n?100*bt.w/n:0,lo=100*wl(bt.w,n);
+  let verdict,cls="";
+  if(n<100){verdict="Muy pocas operaciones para concluir nada.";}
+  else if(lo<BE*100){verdict="⚠ No supera el punto de equilibrio (54,05%): sin ventaja demostrada. Las señales no son fiables.";cls="dn";}
+  else{verdict="Superó el equilibrio en este periodo, pero eso no garantiza que se repita.";cls="up";}
+  el.textContent="";
+  const add=(t,c,css)=>{const d=document.createElement("div");d.textContent=t;if(c)d.className=c;if(css)d.style.cssText=css;el.appendChild(d);};
+  add(n+" operaciones en "+all.length+" velas de "+tf+": acierto "+wr.toFixed(1)+"% (límite inferior 95%: "+lo.toFixed(1)+"%).");
+  add(verdict,cls,"font-weight:600;margin-top:4px");
 }
 
 async function start(){
@@ -200,7 +183,8 @@ async function start(){
   if(ws){ws.onclose=null;ws.close();}
   closed=[];live=null;pending=[];W=0;L=0;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
-  $("sig").textContent="Esperando vela…";$("sig").className="";$("why").textContent="";
+  $("sig").textContent="Esperando cierre de vela…";$("sig").className="";
+  $("why").textContent="Entra en la apertura de la vela siguiente, con expiración de una vela.";
   $("st").textContent="conectando…";
   const HOSTS=[["https://data-api.binance.vision","wss://data-stream.binance.vision"],["https://api.binance.com","wss://stream.binance.com:9443"]];
   let host=null,err="";
@@ -214,9 +198,8 @@ async function start(){
     }catch(e){err=e.message;}
   }
   if(!host){$("st").textContent="error cargando historial ("+err+")";return;}
-  HOST=host;
   const r0=rsi(closed);$("rsi").textContent=r0===null?"--":r0.toFixed(1);
-  $("sig").textContent="Sin señal todavía (se evalúa al cerrar cada vela)";
+  histInfo(id,sym,tf,host);
   ws=new WebSocket(host[1]+"/ws/"+sym.toLowerCase()+"@kline_"+tf);
   ws.onopen=()=>{$("st").textContent="● en vivo"};
   ws.onmessage=m=>{
@@ -228,7 +211,7 @@ async function start(){
   ws.onclose=()=>{if(id===cfg){$("st").textContent="reconectando…";setTimeout(()=>{if(id===cfg)start();},3000);}};
 }
 setInterval(()=>{if(live)$("cd").textContent=Math.max(0,Math.round((live.ct-Date.now())/1000));},1000);
-$("sym").onchange=start;$("tf").onchange=start;$("btn").onclick=analizar;
+$("sym").onchange=start;$("tf").onchange=start;
 window.onresize=draw;
 start();
 </script>
