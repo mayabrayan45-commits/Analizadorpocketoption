@@ -16,8 +16,9 @@ select{flex:1;padding:10px;border-radius:8px;border:1px solid var(--mut);backgro
 #price{font-size:26px;font-weight:600}
 canvas{width:100%;height:220px;display:block}
 #sig{font-size:24px;font-weight:700;padding:6px 0}
+#grade{font-weight:600;margin-top:4px}
 .up{color:var(--up)}.dn{color:var(--dn)}
-#log div{padding:3px 0;font-size:13px}
+#log div,#hist div{padding:3px 0;font-size:13px}
 </style>
 </head>
 <body>
@@ -31,12 +32,13 @@ canvas{width:100%;height:220px;display:block}
   <canvas id="cv"></canvas>
 </div>
 <div class="card">
-  <div class="mut">Señal automática al cerrar cada vela · RSI(14): <span id="rsi">--</span></div>
+  <div class="mut">Entrada al cerrar cada vela · RSI(14): <span id="rsi">--</span></div>
   <div id="sig">Esperando cierre de vela…</div>
   <div class="mut" id="why">Entra en la apertura de la vela siguiente, con expiración de una vela.</div>
+  <div id="grade" class="mut"></div>
 </div>
 <div class="card">
-  <div class="mut">Confiabilidad histórica de esta regla (últimas ~5.000 velas)</div>
+  <div class="mut">Ranking de estrategias: se elige con el 70% antiguo de ~5.000 velas y se verifica en el 30% reciente</div>
   <div id="hist">calculando…</div>
 </div>
 <div class="card">
@@ -49,8 +51,8 @@ canvas{width:100%;height:220px;display:block}
 
 <script>
 const $=id=>document.getElementById(id);
-const BE=1/1.85,TH=2;
-let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0;
+const BE=1/1.85;
+let closed=[],live=null,ws=null,pending=[],W=0,L=0,cfg=0,STATS=null;
 
 // PURE-START
 function emaS(a,n){const k=2/(n+1),o=[a[0]];for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));return o;}
@@ -62,43 +64,58 @@ function rsiS(c,n=14){
   for(let i=n+1;i<c.length;i++){const d=c[i]-c[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;o[i]=l===0?100:100-100/(1+g/l);}
   return o;
 }
-function votes(cs){
-  const c=cs.map(x=>x.c),R=rsiS(c),e9=emaS(c,9),e21=emaS(c,21),e12=emaS(c,12),e26=emaS(c,26);
-  const m=e12.map((v,i)=>v-e26[i]),sg=emaS(m,9);
-  const V=i=>{
-    const d=[];
-    if(R[i]!==null){if(R[i]<30)d.push(["RSI bajo (<30)",1]);else if(R[i]>70)d.push(["RSI alto (>70)",-1]);}
-    d.push(e9[i]>e21[i]?["Tendencia corta alcista (EMA9 > EMA21)",1]:["Tendencia corta bajista (EMA9 < EMA21)",-1]);
-    d.push(m[i]-sg[i]>0?["MACD positivo",1]:["MACD negativo",-1]);
-    if(i>=19){
-      let s=0;for(let j=i-19;j<=i;j++)s+=c[j];
-      const mu=s/20;let q=0;for(let j=i-19;j<=i;j++)q+=(c[j]-mu)*(c[j]-mu);
-      const sd=Math.sqrt(q/20);
-      if(c[i]<mu-2*sd)d.push(["Precio bajo la banda de Bollinger",1]);
-      else if(c[i]>mu+2*sd)d.push(["Precio sobre la banda de Bollinger",-1]);
-    }
-    if(i>=1){
-      const a=cs[i],p=cs[i-1];
-      if(p.c<p.o&&a.c>a.o&&a.c>=p.o&&a.o<=p.c)d.push(["Envolvente alcista",1]);
-      if(p.c>p.o&&a.c<a.o&&a.c<=p.o&&a.o>=p.c)d.push(["Envolvente bajista",-1]);
-    }
-    return{d,s:d.reduce((t,x)=>t+x[1],0)};
-  };
-  return{V};
-}
-function backtest(cs,th){
-  const {V}=votes(cs);let w=0,l=0;
-  for(let i=40;i<cs.length-1;i++){
-    const s=V(i).s;if(Math.abs(s)<th)continue;
-    const x=Math.sign(cs[i+1].c-cs[i+1].o);if(x===0)continue;
-    x===Math.sign(s)?w++:l++;
-  }
-  return{w,l};
-}
 function wl(w,n){if(!n)return 0;const p=w/n,z=1.96;return(p+z*z/(2*n)-z*Math.sqrt(p*(1-p)/n+z*z/(4*n*n)))/(1+z*z/n);}
+function build(cs){
+  const n=cs.length,c=cs.map(x=>x.c),o=cs.map(x=>x.o),h=cs.map(x=>x.h),l=cs.map(x=>x.l);
+  const R14=rsiS(c,14),R2=rsiS(c,2),e9=emaS(c,9),e21=emaS(c,21),e12=emaS(c,12),e26=emaS(c,26);
+  const m=e12.map((v,i)=>v-e26[i]),sg=emaS(m,9);
+  const mu=[],sd=[],hh=[],ll=[],K=[];
+  for(let i=0;i<n;i++){
+    if(i>=19){let s=0;for(let j=i-19;j<=i;j++)s+=c[j];const a=s/20;let q=0;for(let j=i-19;j<=i;j++)q+=(c[j]-a)*(c[j]-a);mu[i]=a;sd[i]=Math.sqrt(q/20);}
+    if(i>=20){let mx=-Infinity,mn=Infinity;for(let j=i-20;j<i;j++){mx=Math.max(mx,h[j]);mn=Math.min(mn,l[j]);}hh[i]=mx;ll[i]=mn;}
+    if(i>=13){let mx=-Infinity,mn=Infinity;for(let j=i-13;j<=i;j++){mx=Math.max(mx,h[j]);mn=Math.min(mn,l[j]);}K[i]=mx===mn?50:100*(c[i]-mn)/(mx-mn);}
+  }
+  const Ks=i=>(i>=15&&K[i-2]!==undefined)?(K[i]+K[i-1]+K[i-2])/3:null;
+  const bull=i=>i>=1&&c[i-1]<o[i-1]&&c[i]>o[i]&&c[i]>=o[i-1]&&o[i]<=c[i-1];
+  const bear=i=>i>=1&&c[i-1]>o[i-1]&&c[i]<o[i]&&c[i]<=o[i-1]&&o[i]>=c[i-1];
+  const body=i=>Math.abs(c[i]-o[i])+1e-12,lw=i=>Math.min(o[i],c[i])-l[i],uw=i=>h[i]-Math.max(o[i],c[i]);
+  return [
+    {name:"RSI(14) extremos",f:i=>R14[i]===null?0:R14[i]<30?1:R14[i]>70?-1:0},
+    {name:"RSI(2) extremos",f:i=>R2[i]===null?0:R2[i]<10?1:R2[i]>90?-1:0},
+    {name:"Bollinger reversión",f:i=>mu[i]===undefined?0:c[i]<mu[i]-2*sd[i]?1:c[i]>mu[i]+2*sd[i]?-1:0},
+    {name:"Estocástico 14,3",f:i=>{const k=Ks(i);return k===null?0:k<20?1:k>80?-1:0;}},
+    {name:"Envolvente",f:i=>bull(i)?1:bear(i)?-1:0},
+    {name:"Martillo / Estrella",f:i=>R14[i]===null?0:(lw(i)>2*body(i)&&uw(i)<body(i)&&R14[i]<40)?1:(uw(i)>2*body(i)&&lw(i)<body(i)&&R14[i]>60)?-1:0},
+    {name:"Ruptura 20 velas",f:i=>hh[i]===undefined?0:c[i]>hh[i]?1:c[i]<ll[i]?-1:0},
+    {name:"3 velas seguidas (reversión)",f:i=>{if(i<2)return 0;const r=[0,1,2].map(k=>Math.sign(c[i-k]-o[i-k]));return r.every(x=>x===-1)?1:r.every(x=>x===1)?-1:0;}},
+    {name:"Retroceso en tendencia",f:i=>R14[i]===null?0:(e9[i]>e21[i]&&R14[i]<45)?1:(e9[i]<e21[i]&&R14[i]>55)?-1:0},
+    {name:"Tendencia EMA 9/21",f:i=>i<21?0:Math.sign(e9[i]-e21[i])},
+    {name:"MACD histograma",f:i=>i<35?0:Math.sign(m[i]-sg[i])}
+  ];
+}
+function evalAll(cs){
+  const S=build(cs),n=cs.length,cut=Math.floor(n*0.7);
+  return S.map(s=>{
+    const tr={w:0,l:0},te={w:0,l:0};
+    for(let i=40;i<n-1;i++){
+      const d=s.f(i);if(!d)continue;
+      const x=Math.sign(cs[i+1].c-cs[i+1].o);if(!x)continue;
+      const b=i<cut?tr:te;x===d?b.w++:b.l++;
+    }
+    const nt=tr.w+tr.l;
+    return{name:s.name,tr,te,score:nt>=30?tr.w/nt:0};
+  });
+}
+function grade(te){
+  const n=te.w+te.l;
+  if(n<30)return["Pocos datos en la prueba: calidad desconocida","mut"];
+  const wr=100*te.w/n,lb=100*wl(te.w,n);
+  if(lb>=BE*100)return["Calidad alta: superó el equilibrio en la prueba ("+wr.toFixed(1)+"%, "+n+" ops)","up"];
+  if(wr>=BE*100)return["Calidad dudosa: acertó "+wr.toFixed(1)+"% en la prueba ("+n+" ops), sin certeza","mut"];
+  return["Calidad baja: solo "+wr.toFixed(1)+"% en la prueba ("+n+" ops). No entres con dinero real","dn"];
+}
 // PURE-END
 
-function rsi(cs,n=14){const r=rsiS(cs.map(x=>x.c),n);return r[r.length-1];}
 function toC(k){return{t:k[0],o:+k[1],h:+k[2],l:+k[3],c:+k[4],ct:k[6]};}
 
 function onClose(c){
@@ -111,25 +128,30 @@ function onClose(c){
         const win=dir===s.d;win?W++:L++;
         const d=document.createElement("div");
         d.className=win?"up":"dn";
-        d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+" · puntaje "+s.s;
+        d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+" · "+s.name;
         $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
       }
     }else keep.push(s);
   }
   pending=keep;
-  const r=rsi(closed);
-  $("rsi").textContent=r===null?"--":r.toFixed(1);
-  const v=votes(closed).V(closed.length-1),s=v.s,sg=$("sig");
-  if(Math.abs(s)>=TH){
-    const up=s>0;
-    sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
-    sg.className=up?"up":"dn";
-    $("why").textContent="Puntaje "+s+": "+v.d.map(x=>x[0]).join(" · ");
-    pending.push({d:up?1:-1,t:c.t,s:s});
-  }else{
+  const r=rsiS(closed.map(x=>x.c),14),rv=r[r.length-1];
+  $("rsi").textContent=rv===null?"--":rv.toFixed(1);
+  const S=build(closed),i=closed.length-1,fire=[],sg=$("sig");
+  S.forEach(s=>{const d=s.f(i);if(d)fire.push({name:s.name,d:d});});
+  if(!fire.length){
     sg.textContent="Neutral: no entrar";sg.className="";
-    $("why").textContent="Puntaje "+s+" (hace falta "+TH+" o más, o "+(-TH)+" o menos)";
+    $("why").textContent="Ninguna estrategia da dirección ahora.";$("grade").textContent="";
+    return;
   }
+  const sc=nm=>{const x=STATS&&STATS.find(y=>y.name===nm);return x?x.score:0;};
+  fire.sort((a,b)=>sc(b.name)-sc(a.name));
+  const best=fire[0],agree=fire.filter(x=>x.d===best.d).length,up=best.d===1;
+  sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
+  sg.className=up?"up":"dn";
+  $("why").textContent="Estrategia: "+best.name+" · "+agree+" de "+fire.length+" activas coinciden";
+  const st=STATS&&STATS.find(y=>y.name===best.name),g=st?grade(st.te):["Calculando calidad histórica…","mut"];
+  $("grade").textContent=g[0];$("grade").className=g[1];
+  pending.push({d:best.d,t:c.t,name:best.name});
   const n=W+L;
   if(n)$("score").textContent=n+" operaciones · acierto "+(100*W/n).toFixed(1)+"% (W "+W+" / L "+L+")";
 }
@@ -154,7 +176,7 @@ function draw(){
 }
 
 async function histInfo(id,sym,tf,host){
-  const el=$("hist");el.className="";el.textContent="calculando…";
+  const el=$("hist");el.textContent="calculando…";
   let all=[],end=Date.now();
   try{
     for(let j=0;j<5;j++){
@@ -166,24 +188,24 @@ async function histInfo(id,sym,tf,host){
   }catch(e){if(id===cfg)el.textContent="No se pudo calcular ("+e.message+")";return;}
   if(id!==cfg)return;
   all=all.filter(c=>c.ct<Date.now());
-  if(all.length<100){el.textContent="Pocos datos para calcular.";return;}
-  const bt=backtest(all,TH),n=bt.w+bt.l,wr=n?100*bt.w/n:0,lo=100*wl(bt.w,n);
-  let verdict,cls="";
-  if(n<100){verdict="Muy pocas operaciones para concluir nada.";}
-  else if(lo<BE*100){verdict="⚠ No supera el punto de equilibrio (54,05%): sin ventaja demostrada. Las señales no son fiables.";cls="dn";}
-  else{verdict="Superó el equilibrio en este periodo, pero eso no garantiza que se repita.";cls="up";}
+  if(all.length<500){el.textContent="Pocos datos para calcular.";return;}
+  STATS=evalAll(all);
+  const rows=[...STATS].sort((a,b)=>b.score-a.score);
   el.textContent="";
-  const add=(t,c,css)=>{const d=document.createElement("div");d.textContent=t;if(c)d.className=c;if(css)d.style.cssText=css;el.appendChild(d);};
-  add(n+" operaciones en "+all.length+" velas de "+tf+": acierto "+wr.toFixed(1)+"% (límite inferior 95%: "+lo.toFixed(1)+"%).");
-  add(verdict,cls,"font-weight:600;margin-top:4px");
+  const add=(t,cls,css)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;if(css)d.style.cssText=css;el.appendChild(d);};
+  const pc=b=>{const n=b.w+b.l;return n?(100*b.w/n).toFixed(1)+"% ("+n+")":"sin datos";};
+  let pass=0;
+  rows.forEach(s=>{const g=grade(s.te);if(g[1]==="up")pass++;});
+  add(pass===0?"⚠ Ninguna estrategia superó el equilibrio (54,05%) en la prueba: ninguna entrada es fiable ahora.":pass+" estrategia(s) superaron el equilibrio en la prueba; eso no garantiza que se repita.",pass===0?"dn":"up","font-weight:600;margin-bottom:4px");
+  rows.forEach(s=>{const g=grade(s.te);add(s.name+" · entrenamiento "+pc(s.tr)+" · prueba "+pc(s.te),g[1]);});
 }
 
 async function start(){
   const id=++cfg,sym=$("sym").value,tf=$("tf").value;
   if(ws){ws.onclose=null;ws.close();}
-  closed=[];live=null;pending=[];W=0;L=0;
+  closed=[];live=null;pending=[];W=0;L=0;STATS=null;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
-  $("sig").textContent="Esperando cierre de vela…";$("sig").className="";
+  $("sig").textContent="Esperando cierre de vela…";$("sig").className="";$("grade").textContent="";
   $("why").textContent="Entra en la apertura de la vela siguiente, con expiración de una vela.";
   $("st").textContent="conectando…";
   const HOSTS=[["https://data-api.binance.vision","wss://data-stream.binance.vision"],["https://api.binance.com","wss://stream.binance.com:9443"]];
@@ -198,7 +220,7 @@ async function start(){
     }catch(e){err=e.message;}
   }
   if(!host){$("st").textContent="error cargando historial ("+err+")";return;}
-  const r0=rsi(closed);$("rsi").textContent=r0===null?"--":r0.toFixed(1);
+  const r0=rsiS(closed.map(x=>x.c),14),v0=r0[r0.length-1];$("rsi").textContent=v0===null?"--":v0.toFixed(1);
   histInfo(id,sym,tf,host);
   ws=new WebSocket(host[1]+"/ws/"+sym.toLowerCase()+"@kline_"+tf);
   ws.onopen=()=>{$("st").textContent="● en vivo"};
