@@ -12,6 +12,7 @@ body{margin:0 auto;max-width:640px;padding:12px;background:var(--bg);color:var(-
 .row{display:flex;gap:8px;margin-bottom:8px}
 select,input{flex:1;padding:10px;border-radius:8px;border:1px solid var(--mut);background:var(--card);color:var(--fg);font-size:15px}
 button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--up);color:#fff;font-size:17px;font-weight:600;margin-bottom:8px;cursor:pointer}
+button:active{opacity:.9}
 .btn-sm{width:auto;padding:10px 14px;font-size:14px;margin-bottom:0}
 .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:8px}
 .mut{color:var(--mut);font-size:13px}
@@ -72,6 +73,12 @@ canvas{width:100%;height:220px;display:block}
 const $=id=>document.getElementById(id);
 const BE=1/1.85;
 let closed=[],live=null,pollTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null;
+
+// Restaurar API key si el usuario la guardó antes
+try{
+  const savedKey=localStorage.getItem("fx_td_key");
+  if(savedKey)$("apiKey").value=savedKey;
+}catch{}
 
 // PURE-START
 function emaS(a,n){if(!a.length)return[];const k=2/(n+1),o=[a[0]];for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));return o;}
@@ -181,10 +188,10 @@ function applyTick(price,nowMs=Date.now()){
 function analizar(){
   const sg=$("sig"),vl=$("votes");
   vl.textContent="";
-  if(closed.length<40){
-    sg.textContent="Acumulando velas ("+closed.length+"/40)";
+  if(closed.length<36){
+    sg.textContent="Acumulando velas ("+closed.length+"/36)";
     sg.className="";
-    $("why").textContent="Con feed público sin historial largo de velas, se van formando velas en vivo según el tiempo elegido (1m o 5m).";
+    $("why").textContent="Se necesitan al menos 36 velas cerradas para calcular MACD y RSI. Mantén la página abierta o conecta una API key de Twelve Data para cargar historial al instante.";
     return;
   }
   const S=build(closed),i=closed.length-1;
@@ -217,25 +224,34 @@ function analizar(){
 
 function draw(){
   const cv=$("cv"),dpr=window.devicePixelRatio||1;
-  cv.width=cv.clientWidth*dpr;cv.height=cv.clientHeight*dpr;
-  const x=cv.getContext("2d");x.scale(dpr,dpr);
   const w=cv.clientWidth,h=cv.clientHeight;
+  if(!w||!h)return;
+  cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);
+  const x=cv.getContext("2d");x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h);
-  const cs=closed.slice(-60).concat(live?[live]:[]);
-  if(cs.length<2)return;
-  const hi=Math.max(...cs.map(c=>c.h)),lo=Math.min(...cs.map(c=>c.l)),rg=(hi-lo)||1e-6;
-  const Y=v=>h-4-(v-lo)/rg*(h-8),cw=w/cs.length;
   const cu=getComputedStyle(document.documentElement);
+  const cs=closed.slice(-60).concat(live?[live]:[]);
+  if(!cs.length){
+    x.fillStyle=cu.getPropertyValue("--mut");
+    x.font="13px system-ui";
+    x.fillText("Esperando primer precio en vivo…",12,h/2);
+    return;
+  }
+  const hi=Math.max(...cs.map(c=>c.h)),lo=Math.min(...cs.map(c=>c.l)),rg=(hi-lo)||Math.max(hi*0.0002,1e-5);
+  const Y=v=>h-18-(v-lo)/rg*(h-34),cw=Math.min(24,w/Math.max(cs.length,8));
+  const offset=w-cs.length*cw;
   cs.forEach((c,i)=>{
-    const col=c.c>=c.o?cu.getPropertyValue("--up"):cu.getPropertyValue("--dn"),cx=i*cw+cw/2;
+    const col=c.c>=c.o?cu.getPropertyValue("--up"):cu.getPropertyValue("--dn");
+    const cx=offset+i*cw+cw/2;
     x.strokeStyle=col;x.fillStyle=col;
     x.beginPath();x.moveTo(cx,Y(c.h));x.lineTo(cx,Y(c.l));x.stroke();
-    const top=Y(Math.max(c.o,c.c)),bh=Math.max(1,Math.abs(Y(c.o)-Y(c.c)));
+    const top=Y(Math.max(c.o,c.c)),bh=Math.max(2,Math.abs(Y(c.o)-Y(c.c)));
     x.fillRect(cx-cw*0.35,top,cw*0.7,bh);
   });
   const fm=v=>v.toLocaleString("en-US",{minimumFractionDigits:4,maximumFractionDigits:5});
   x.fillStyle=cu.getPropertyValue("--mut");x.font="11px system-ui";
-  x.fillText("máx "+fm(hi),4,12);x.fillText("mín "+fm(lo),4,h-6);
+  x.fillText("máx "+fm(hi),4,12);
+  x.fillText("mín "+fm(lo)+" · velas: "+cs.length,4,h-4);
 }
 
 async function fetchPublicFxRate(sym){
@@ -246,6 +262,34 @@ async function fetchPublicFxRate(sym){
   const rate=d&&d.rates&&d.rates[quote];
   if(!rate)throw new Error("Par no disponible");
   return +rate;
+}
+
+async function fetchPublicSeedCandles(sym){
+  const [base,quote]=sym.split("/");
+  const end=new Date().toISOString().slice(0,10);
+  const startDt=new Date(Date.now()-65*86400*1000).toISOString().slice(0,10);
+  const url="https://api.frankfurter.app/"+startDt+".."+end+"?from="+encodeURIComponent(base)+"&to="+encodeURIComponent(quote);
+  const r=await fetch(url);
+  if(!r.ok)return[];
+  const d=await r.json();
+  if(!d||!d.rates)return[];
+  const dates=Object.keys(d.rates).sort();
+  const out=[];
+  let prev=null;
+  const stepMs=getTfSec()*1000;
+  const nowBucket=bucketStart(Date.now());
+  dates.forEach((dt,idx)=>{
+    const val=d.rates[dt]&&d.rates[dt][quote];
+    if(!val)return;
+    const o=prev===null?val:prev;
+    const c=val;
+    const h=Math.max(o,c);
+    const l=Math.min(o,c);
+    const t=nowBucket-(dates.length-idx)*stepMs;
+    out.push({t,o,h,l,c,ct:t+stepMs});
+    prev=val;
+  });
+  return out;
 }
 
 async function loadTwelveDataHistory(id,sym,interval,key){
@@ -276,21 +320,27 @@ function renderStats(all){
 
 async function start(){
   const id=++cfg,sym=$("sym").value,tdInt=$("tf").selectedOptions[0].dataset.td,key=$("apiKey").value.trim();
+  try{
+    if(key)localStorage.setItem("fx_td_key",key);
+    else localStorage.removeItem("fx_td_key");
+  }catch{}
   if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
   closed=[];live=null;pending=[];W=0;L=0;STATS=null;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
   $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("grade").textContent="";$("votes").textContent="";
   $("hist").textContent="calculando…";
   $("st").textContent="conectando Forex…";
+  draw();
 
   if(key){
     try{
       const hist=await loadTwelveDataHistory(id,sym,tdInt,key);
       if(id!==cfg)return;
-      if(hist && hist.length>=500){
+      if(hist && hist.length>=40){
         live=hist.pop();
         closed=hist.slice(-300);
-        renderStats(hist);
+        if(hist.length>=500)renderStats(hist);
+        else $("hist").textContent="Historial cargado ("+hist.length+" velas). Listo para analizar.";
         applyTick(live.c);
         $("st").textContent="● Forex en vivo (Twelve Data)";
       }
@@ -299,7 +349,15 @@ async function start(){
       $("hist").textContent="Historial Twelve Data no disponible ("+e.message+"). Usando feed público en vivo.";
     }
   }else{
-    $("hist").textContent="Sin API key de Twelve Data: se muestran votos en vivo tras acumular 40 velas (o pega una clave gratuita para probar ~5.000 velas).";
+    try{
+      const seed=await fetchPublicSeedCandles(sym);
+      if(id!==cfg)return;
+      if(seed.length){
+        closed=seed;
+        draw();
+      }
+    }catch{}
+    $("hist").textContent="Modo público activo: gráfico inicializado con referencias recientes y actualización en vivo cada 5s (pega API key de Twelve Data para backtest de ~5.000 velas).";
   }
 
   const tick=async()=>{
