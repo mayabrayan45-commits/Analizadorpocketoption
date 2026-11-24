@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Análisis de mercado · Forex</title>
 <style>
-:root{--bg:#0f1115;--fg:#e8e8e8;--mut:#8a8f98;--up:#2ebd85;--dn:#f6465d;--card:#181b22}
-@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--fg:#15181e;--mut:#5d6470;--card:#fff}}
+:root{--bg:#0f1115;--fg:#e8e8e8;--mut:#8a8f98;--up:#2ebd85;--dn:#f6465d;--card:#181b22;--warn:#e5a93c}
+@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--fg:#15181e;--mut:#5d6470;--card:#fff;--warn:#b27400}}
 *{box-sizing:border-box}
 body{margin:0 auto;max-width:640px;padding:12px;background:var(--bg);color:var(--fg);font:15px system-ui,sans-serif}
 .row{display:flex;gap:8px;margin-bottom:8px}
@@ -15,15 +15,20 @@ button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--up);
 button:active{opacity:.9}
 button:disabled{opacity:.6;cursor:wait}
 .btn-sm{width:auto;padding:10px 14px;font-size:14px;margin-bottom:0}
+.btn-sec{background:#2a303c;color:var(--fg);font-size:14px;padding:10px 12px;margin-bottom:0;flex:1}
+.btn-dn{background:var(--dn);color:#fff;font-size:14px;padding:10px 12px;margin-bottom:0;flex:1}
+.btn-up{background:var(--up);color:#fff;font-size:14px;padding:10px 12px;margin-bottom:0;flex:1}
 .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:8px}
 .mut{color:var(--mut);font-size:13px}
 #price{font-size:26px;font-weight:600}
 canvas{width:100%;height:220px;display:block}
 #sig{font-size:24px;font-weight:700;padding:6px 0}
 #grade{font-weight:600;margin-top:4px}
-.up{color:var(--up)}.dn{color:var(--dn)}
-#log div,#hist div,#votes div{padding:3px 0;font-size:13px}
+.up{color:var(--up)}.dn{color:var(--dn)}.warn{color:var(--warn)}
+#log div,#hist div,#votes div,#memList div{padding:3px 0;font-size:13px}
 #votes{margin-top:8px}
+.head-flex{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.mini-reset{background:transparent;border:1px solid var(--mut);color:var(--mut);width:auto;padding:4px 8px;font-size:12px;border-radius:6px;margin:0}
 </style>
 </head>
 <body>
@@ -51,12 +56,24 @@ canvas{width:100%;height:220px;display:block}
   <canvas id="cv"></canvas>
 </div>
 <button id="btn">Analizar mercado ahora</button>
+<div class="row">
+  <button id="btnWin" class="btn-up" type="button">✔ Señal acertó</button>
+  <button id="btnLoss" class="btn-dn" type="button">✘ Señal falló</button>
+</div>
 <div class="card">
   <div class="mut">Análisis sobre la última vela cerrada · RSI(14): <span id="rsi">--</span></div>
   <div id="sig">Toca «Analizar mercado ahora»</div>
   <div class="mut" id="why">Para que coincida con la prueba histórica, analiza justo al cerrar la vela y entra en la apertura de la siguiente, con expiración de una vela.</div>
   <div id="grade" class="mut"></div>
   <div id="votes"></div>
+</div>
+<div class="card">
+  <div class="head-flex">
+    <div class="mut" style="margin:0">Memoria guardada: solo se prioriza lo que mejor rinde</div>
+    <button id="resetMem" class="mini-reset" type="button">Reiniciar memoria</button>
+  </div>
+  <div id="memSummary" class="mut">Sin señales evaluadas todavía en este par/tiempo.</div>
+  <div id="memList"></div>
 </div>
 <div class="card">
   <div class="mut">Ranking de estrategias: se elige con el 70% antiguo de ~5.000 velas y se verifica en el 30% reciente</div>
@@ -73,7 +90,10 @@ canvas{width:100%;height:220px;display:block}
 <script>
 const $=id=>document.getElementById(id);
 const BE=1/1.85;
-let closed=[],live=null,pollTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null,lastAnalyzedCandle=null,readCount=0;
+const MIN_WIN_RATE=0.54; // Umbral mínimo de acierto para mantenerse activa cuando ya hay muestra suficiente
+const MIN_SAMPLES_FILTER=5; // Cantidad de señales evaluadas por estrategia antes de filtrar las que rinden mal
+
+let closed=[],live=null,pollTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null,lastAnalyzedCandle=null,readCount=0,lastSignalRecord=null;
 
 try{
   const savedKey=localStorage.getItem("fx_td_key");
@@ -142,6 +162,74 @@ function grade(te){
 }
 // PURE-END
 
+function memKey(){
+  return "fx_learned_v1_"+$("sym").value+"_"+$("tf").value;
+}
+function loadMem(){
+  try{
+    const raw=localStorage.getItem(memKey());
+    if(!raw)return{};
+    const parsed=JSON.parse(raw);
+    return parsed&&typeof parsed==="object"?parsed:{};
+  }catch{return{};}
+}
+function saveMem(obj){
+  try{localStorage.setItem(memKey(),JSON.stringify(obj));}catch{}
+}
+
+function recordOutcome(strategies,won){
+  if(!Array.isArray(strategies)||!strategies.length)return;
+  const mem=loadMem();
+  strategies.forEach(s=>{
+    if(!mem[s.name])mem[s.name]={w:0,l:0};
+    if(won)mem[s.name].w++;
+    else mem[s.name].l++;
+  });
+  saveMem(mem);
+  renderMem();
+}
+
+function getLearnedWeight(name){
+  const mem=loadMem();
+  const st=mem[name];
+  if(!st)return{w:0,l:0,n:0,wr:null,approved:true,weight:0.5};
+  const n=st.w+st.l;
+  if(!n)return{w:0,l:0,n:0,wr:null,approved:true,weight:0.5};
+  const wr=st.w/n;
+  // Si ya hay al menos MIN_SAMPLES_FILTER señales evaluadas, solo aprueba las que superan MIN_WIN_RATE
+  const approved=n<MIN_SAMPLES_FILTER?true:wr>=MIN_WIN_RATE;
+  const weight=approved?(wr+0.05*Math.min(n,20)/20):0;
+  return{w:st.w,l:st.l,n,wr,approved,weight};
+}
+
+function renderMem(){
+  const mem=loadMem();
+  const list=$("memList");
+  const sum=$("memSummary");
+  list.textContent="";
+  const entries=Object.entries(mem)
+    .map(([name,st])=>({name,w:st.w||0,l:st.l||0,n:(st.w||0)+(st.l||0)}))
+    .filter(x=>x.n>0)
+    .sort((a,b)=>(b.w/b.n)-(a.w/a.n)||b.n-a.n);
+
+  if(!entries.length){
+    sum.textContent="Sin señales evaluadas todavía en este par/tiempo. Usa los botones de acierto/fallo o deja cerrar la siguiente vela.";
+    return;
+  }
+
+  const active=entries.filter(x=>x.n<MIN_SAMPLES_FILTER || (x.w/x.n)>=MIN_WIN_RATE);
+  sum.textContent="Activas filtradas: "+active.length+" de "+entries.length+" estrategias evaluadas (mínimo "+(MIN_WIN_RATE*100).toFixed(0)+"% tras "+MIN_SAMPLES_FILTER+" señales).";
+
+  entries.forEach(x=>{
+    const pct=((x.w/x.n)*100).toFixed(1);
+    const isFilteredOut=x.n>=MIN_SAMPLES_FILTER && (x.w/x.n)<MIN_WIN_RATE;
+    const d=document.createElement("div");
+    d.className=isFilteredOut?"dn":((x.w/x.n)>=MIN_WIN_RATE?"up":"mut");
+    d.textContent=(isFilteredOut?"⛔ EXCLUIDA · ":"✔ ACTIVA · ")+x.name+" · "+pct+"% ("+x.w+"W / "+x.l+"L)";
+    list.appendChild(d);
+  });
+}
+
 function getTfSec(){return +$("tf").selectedOptions[0].dataset.sec;}
 function bucketStart(ts){const ms=getTfSec()*1000;return Math.floor(ts/ms)*ms;}
 
@@ -153,6 +241,7 @@ function onClose(c){
       const dir=Math.sign(c.c-c.o);
       if(dir!==0){
         const win=dir===s.d;win?W++:L++;
+        recordOutcome(s.voters||[{name:s.name}],win);
         const d=document.createElement("div");
         d.className=win?"up":"dn";
         d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+" · "+s.name;
@@ -163,6 +252,27 @@ function onClose(c){
   pending=keep;
   const n=W+L;
   if(n)$("score").textContent=n+" operaciones · acierto "+(100*W/n).toFixed(1)+"% (W "+W+" / L "+L+")";
+}
+
+function manualOutcome(won){
+  if(!lastSignalRecord){
+    $("why").textContent="Primero analiza el mercado para tener una señal activa que marcar.";
+    return;
+  }
+  if(lastSignalRecord.marked){
+    $("why").textContent="Esa señal ya quedó guardada en la memoria.";
+    return;
+  }
+  lastSignalRecord.marked=true;
+  won?W++:L++;
+  recordOutcome(lastSignalRecord.voters,won);
+  const n=W+L;
+  if(n)$("score").textContent=n+" operaciones · acierto "+(100*W/n).toFixed(1)+"% (W "+W+" / L "+L+")";
+  const d=document.createElement("div");
+  d.className=won?"up":"dn";
+  d.textContent=(won?"✔ ":"✘ ")+(lastSignalRecord.d===1?"CALL":"PUT")+" · "+lastSignalRecord.name+" (guardado)";
+  $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
+  $("why").textContent=(won?"Acierto guardado":"Fallo guardado")+" para "+lastSignalRecord.name+". La memoria ya ajustó qué estrategias usar.";
 }
 
 function applyTick(price,nowMs=Date.now()){
@@ -208,7 +318,6 @@ async function fetchLatestTick(id){
 
 async function analizar(){
   const btn=$("btn"),sg=$("sig"),vl=$("votes"),id=cfg;
-  // Reinicia visualmente la lectura anterior en cada clic
   btn.disabled=true;
   btn.textContent="Leyendo gráfico…";
   sg.textContent="Actualizando y analizando…";
@@ -244,33 +353,50 @@ async function analizar(){
 
   const r=rsiS(closed.map(x=>x.c),14),rv=r[r.length-1];
   $("rsi").textContent=rv===null?"--":rv.toFixed(1);
-  const vs=S.map(s=>({name:s.name,d:s.f(i)})),fire=vs.filter(v=>v.d);
-  const find=nm=>STATS&&STATS.find(y=>y.name===nm);
-  const sc=nm=>{const x=find(nm);return x?x.score:0;};
+
+  const vs=S.map(s=>{
+    const memSt=getLearnedWeight(s.name);
+    const histSt=STATS&&STATS.find(y=>y.name===s.name);
+    const baseScore=histSt?histSt.score:0.5;
+    const effectiveScore=memSt.n>0?memSt.weight:baseScore;
+    return{name:s.name,d:s.f(i),memSt,effectiveScore};
+  });
+
+  // Solo entran en votación activa las estrategias aprobadas por la memoria guardada
+  const activeFire=vs.filter(v=>v.d && v.memSt.approved);
   const horaVela=new Date(candleT).toLocaleTimeString();
   const horaLectura=new Date().toLocaleTimeString();
   const add=(t,cls)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;vl.appendChild(d);};
   const extra=sameCandle?" (misma vela cerrada; espera el próximo cierre para una vela nueva)":"";
 
-  if(!fire.length){
+  if(!activeFire.length){
+    lastSignalRecord=null;
     sg.textContent="Neutral: no entrar";
     sg.className="";
-    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Ninguna estrategia da dirección en la vela de las "+horaVela+extra+".";
+    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Ninguna estrategia aprobada da señal clara en la vela de las "+horaVela+extra+".";
     $("grade").textContent="";
   }else{
-    const best=[...fire].sort((a,b)=>sc(b.name)-sc(a.name))[0];
-    const agree=fire.filter(x=>x.d===best.d).length,up=best.d===1;
+    const best=[...activeFire].sort((a,b)=>b.effectiveScore-a.effectiveScore)[0];
+    const agree=activeFire.filter(x=>x.d===best.d).length,up=best.d===1;
     sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
     sg.className=up?"up":"dn";
-    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Estrategia: "+best.name+" · "+agree+" de "+fire.length+" activas coinciden · vela de las "+horaVela+extra;
-    const st=find(best.name),g=st?grade(st.te):["Sin prueba de ~5.000 velas (agrega API key de Twelve Data para backtest largo)","mut"];
+    const memInfo=best.memSt.n>0?" · memoria "+((best.memSt.w/best.memSt.n)*100).toFixed(0)+"% ("+best.memSt.w+"/"+best.memSt.n+")":"";
+    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Estrategia: "+best.name+memInfo+" · "+agree+" de "+activeFire.length+" activas coinciden"+extra;
+    const histSt=STATS&&STATS.find(y=>y.name===best.name);
+    const g=histSt?grade(histSt.te):["Usando filtro de memoria guardada local para priorizar lo que mejor rinde","mut"];
     $("grade").textContent=g[0];$("grade").className=g[1];
+
+    const voters=activeFire.filter(x=>x.d===best.d).map(x=>({name:x.name}));
+    lastSignalRecord={d:best.d,t:candleT,name:best.name,voters,marked:false};
     pending=pending.filter(p=>p.t!==candleT);
-    pending.push({d:best.d,t:candleT,name:best.name});
+    pending.push({d:best.d,t:candleT,name:best.name,voters});
   }
-  [...vs].sort((a,b)=>sc(b.name)-sc(a.name)).forEach(v=>{
-    const st=find(v.name),n=st?st.te.w+st.te.l:0,pr=n?" · prueba "+(100*st.te.w/n).toFixed(1)+"% ("+n+")":"";
-    add((v.d===1?"▲ CALL":v.d===-1?"▼ PUT":"— sin señal")+" · "+v.name+pr,"mut");
+
+  [...vs].sort((a,b)=>b.effectiveScore-a.effectiveScore).forEach(v=>{
+    const mTxt=v.memSt.n>0?" · memoria "+((v.memSt.w/v.memSt.n)*100).toFixed(0)+"% ("+v.memSt.w+"/"+v.memSt.n+")":"";
+    const stTxt=!v.memSt.approved?"[excluida por bajo rendimiento] ":(v.d===1?"▲ CALL":v.d===-1?"▼ PUT":"— sin señal");
+    const cls=!v.memSt.approved?"dn":"mut";
+    add(stTxt+" · "+v.name+mTxt,cls);
   });
 }
 
@@ -377,11 +503,12 @@ async function start(){
     else localStorage.removeItem("fx_td_key");
   }catch{}
   if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
-  closed=[];live=null;pending=[];W=0;L=0;STATS=null;lastAnalyzedCandle=null;readCount=0;
+  closed=[];live=null;pending=[];W=0;L=0;STATS=null;lastAnalyzedCandle=null;readCount=0;lastSignalRecord=null;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
   $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("grade").textContent="";$("votes").textContent="";
   $("hist").textContent="calculando…";
   $("st").textContent="conectando Forex…";
+  renderMem();
   draw();
 
   if(key){
@@ -433,7 +560,18 @@ setInterval(()=>{
     if(rem===0 && live.c)applyTick(live.c,Date.now()+200);
   }
 },1000);
-$("sym").onchange=start;$("tf").onchange=start;$("applyKey").onclick=start;$("btn").onclick=analizar;
+
+$("sym").onchange=start;
+$("tf").onchange=start;
+$("applyKey").onclick=start;
+$("btn").onclick=analizar;
+$("btnWin").onclick=()=>manualOutcome(true);
+$("btnLoss").onclick=()=>manualOutcome(false);
+$("resetMem").onclick=()=>{
+  try{localStorage.removeItem(memKey());}catch{}
+  renderMem();
+  $("why").textContent="Memoria de este par y temporalidad reiniciada.";
+};
 window.onresize=draw;
 start();
 </script>
