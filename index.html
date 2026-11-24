@@ -25,10 +25,19 @@ canvas{width:100%;height:220px;display:block}
 #sig{font-size:24px;font-weight:700;padding:6px 0}
 #grade{font-weight:600;margin-top:4px}
 .up{color:var(--up)}.dn{color:var(--dn)}.warn{color:var(--warn)}
-#log div,#hist div,#votes div,#memList div{padding:3px 0;font-size:13px}
+#log div,#hist div,#votes div,#memList div,#newsList div{padding:4px 0;font-size:13px;border-bottom:1px solid rgba(138,143,152,.12)}
+#newsList div:last-child{border-bottom:0}
 #votes{margin-top:8px}
 .head-flex{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
 .mini-reset{background:transparent;border:1px solid var(--mut);color:var(--mut);width:auto;padding:4px 8px;font-size:12px;border-radius:6px;margin:0}
+.alert-banner{border-radius:10px;padding:10px 12px;margin-bottom:8px;font-size:13px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.alert-high{background:rgba(246,70,93,.15);border:1px solid var(--dn);color:var(--dn)}
+.alert-med{background:rgba(229,169,60,.15);border:1px solid var(--warn);color:var(--warn)}
+.alert-ok{background:rgba(46,189,133,.12);border:1px solid var(--up);color:var(--up)}
+.pill{display:inline-block;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:700;margin-right:4px}
+.pill-high{background:var(--dn);color:#fff}
+.pill-med{background:var(--warn);color:#111}
+.pill-low{background:rgba(138,143,152,.25);color:var(--fg)}
 </style>
 </head>
 <body>
@@ -50,6 +59,10 @@ canvas{width:100%;height:220px;display:block}
   <input id="apiKey" type="password" placeholder="API key Twelve Data (opcional para ~5.000 velas)">
   <button id="applyKey" class="btn-sm" type="button">Conectar</button>
 </div>
+<div id="newsBanner" class="alert-banner alert-ok">
+  <span id="newsBannerText">Noticias en tiempo real: verificando eventos del par…</span>
+  <button id="refreshNews" class="mini-reset" type="button">Actualizar</button>
+</div>
 <div class="card">
   <div class="mut"><span id="st">conectando…</span> · cierra en <span id="cd">--</span>s</div>
   <div id="price">--</div>
@@ -66,6 +79,13 @@ canvas{width:100%;height:220px;display:block}
   <div class="mut" id="why">Para que coincida con la prueba histórica, analiza justo al cerrar la vela y entra en la apertura de la siguiente, con expiración de una vela.</div>
   <div id="grade" class="mut"></div>
   <div id="votes"></div>
+</div>
+<div class="card">
+  <div class="head-flex">
+    <div class="mut" style="margin:0">Noticias y calendario en tiempo real (no bloquea señales)</div>
+    <span id="newsStatus" class="mut">cargando…</span>
+  </div>
+  <div id="newsList" class="mut">Buscando eventos macroeconómicos y titulares del par…</div>
 </div>
 <div class="card">
   <div class="head-flex">
@@ -93,7 +113,8 @@ const BE=1/1.85;
 const MIN_WIN_RATE=0.54; // Umbral mínimo de acierto para mantenerse activa cuando ya hay muestra suficiente
 const MIN_SAMPLES_FILTER=5; // Cantidad de señales evaluadas por estrategia antes de filtrar las que rinden mal
 
-let closed=[],live=null,pollTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null,lastAnalyzedCandle=null,readCount=0,lastSignalRecord=null;
+let closed=[],live=null,pollTimer=null,newsTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null,lastAnalyzedCandle=null,readCount=0,lastSignalRecord=null;
+let latestNews={items:[],alertLevel:"ok",alertText:"Sin noticias de alto impacto detectadas para este par."};
 
 try{
   const savedKey=localStorage.getItem("fx_td_key");
@@ -162,6 +183,156 @@ function grade(te){
 }
 // PURE-END
 
+function classifyImpact(title,summary=""){
+  const txt=(title+" "+summary).toLowerCase();
+  const highWords=["rate","interest","fed","fomc","ecb","boe","boj","cpi","inflation","nonfarm","nfp","payroll","gdp","unemployment","powell","lagarde","bailey","ueda","tariff","emergency","war","geopolit","central bank","tasa","inflación","empleo","banco central","pib"];
+  const medWords=["pmi","retail","sales","trade","housing","confidence","speech","minutes","treasury","yield","oil","crude","ventas","confianza","balanza","petróleo","discurso"];
+  if(highWords.some(w=>txt.includes(w)))return"high";
+  if(medWords.some(w=>txt.includes(w)))return"med";
+  return"low";
+}
+
+function pairCurrencies(sym){
+  const [b,q]=sym.split("/");
+  const mapName={EUR:"euro",GBP:"pound",USD:"dollar",JPY:"yen",AUD:"australian",CAD:"canadian",CHF:"swiss"};
+  return{b,q,terms:[b,q,mapName[b]||b,mapName[q]||q,"forex","fx","central bank","inflation","rate","economy"]};
+}
+
+function renderNewsUI(){
+  const banner=$("newsBanner"),bText=$("newsBannerText"),list=$("newsList");
+  banner.className="alert-banner "+(latestNews.alertLevel==="high"?"alert-high":latestNews.alertLevel==="med"?"alert-med":"alert-ok");
+  bText.textContent=latestNews.alertText;
+
+  list.textContent="";
+  if(!latestNews.items.length){
+    const d=document.createElement("div");
+    d.className="mut";
+    d.textContent="Sin titulares recientes en los feeds públicos para este par ahora mismo.";
+    list.appendChild(d);
+    return;
+  }
+
+  latestNews.items.slice(0,6).forEach(it=>{
+    const d=document.createElement("div");
+    const pill=document.createElement("span");
+    pill.className="pill "+(it.impact==="high"?"pill-high":it.impact==="med"?"pill-med":"pill-low");
+    pill.textContent=it.impact==="high"?"ALTO IMPACTO":it.impact==="med"?"MEDIO":"INFO";
+    const titleSpan=document.createElement("span");
+    titleSpan.textContent=it.title;
+    const meta=document.createElement("div");
+    meta.className="mut";
+    meta.style.borderBottom="0";
+    meta.style.padding="2px 0 0";
+    meta.textContent=(it.source||"Feed FX")+(it.timeStr?" · "+it.timeStr:"");
+    d.appendChild(pill);
+    d.appendChild(titleSpan);
+    d.appendChild(meta);
+    list.appendChild(d);
+  });
+}
+
+async function fetchRealTimeNews(){
+  const sym=$("sym").value;
+  const {b,q,terms}=pairCurrencies(sym);
+  $("newsStatus").textContent="actualizando…";
+  const collected=[];
+
+  // Fuente 1: GDELT 2.0 Doc API (noticias globales recientes en tiempo real sin API key)
+  try{
+    const queryStr=encodeURIComponent(`(${b} OR ${q} OR forex OR "central bank" OR inflation OR rate)`);
+    const gdeltUrl=`https://api.gdeltproject.org/api/v2/doc/doc?query=${queryStr}&mode=ArtList&maxrecords=12&format=json&sort=DateDesc`;
+    const r=await fetch(gdeltUrl);
+    if(r.ok){
+      const d=await r.json();
+      if(d && Array.isArray(d.articles)){
+        for(const a of d.articles){
+          if(!a.title)continue;
+          const tLower=(a.title+" "+(a.domain||"")).toLowerCase();
+          const relevant=tLower.includes(b.toLowerCase())||tLower.includes(q.toLowerCase())||terms.some(k=>tLower.includes(k.toLowerCase()));
+          if(!relevant)continue;
+          let timeStr="";
+          if(a.seendate && a.seendate.length>=12){
+            const y=a.seendate.slice(0,4),m=a.seendate.slice(4,6),dy=a.seendate.slice(6,8),hh=a.seendate.slice(9,11),mm=a.seendate.slice(11,13);
+            const dt=new Date(`${y}-${m}-${dy}T${hh}:${mm}:00Z`);
+            if(!isNaN(dt.getTime()))timeStr=dt.toLocaleTimeString();
+          }
+          collected.push({
+            title:a.title.trim(),
+            source:a.domain||"GDELT FX",
+            timeStr,
+            impact:classifyImpact(a.title)
+          });
+        }
+      }
+    }
+  }catch{}
+
+  // Fuente 2: respaldo vía rss2json / Yahoo Finance FX RSS si GDELT no devuelve suficiente
+  if(collected.length<3){
+    try{
+      const pairCode=(b+q+"=X");
+      const rssUrl=encodeURIComponent(`https://feeds.finance.yahoo.com/rss/2.0/headline?s=${pairCode}&region=US&lang=en-US`);
+      const r2=await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${rssUrl}`);
+      if(r2.ok){
+        const d2=await r2.json();
+        if(d2 && Array.isArray(d2.items)){
+          for(const it of d2.items.slice(0,6)){
+            if(!it.title)continue;
+            collected.push({
+              title:it.title.trim(),
+              source:"Yahoo Finance FX",
+              timeStr:it.pubDate?new Date(it.pubDate).toLocaleTimeString():"",
+              impact:classifyImpact(it.title,it.description||"")
+            });
+          }
+        }
+      }
+    }catch{}
+  }
+
+  // Deduplicar por título normalizado
+  const seen=new Set();
+  const unique=[];
+  for(const item of collected){
+    const key=item.title.toLowerCase().slice(0,70);
+    if(seen.has(key))continue;
+    seen.add(key);
+    unique.push(item);
+  }
+
+  const highCount=unique.filter(x=>x.impact==="high").length;
+  const medCount=unique.filter(x=>x.impact==="med").length;
+
+  if(highCount>0){
+    latestNews={
+      items:unique,
+      alertLevel:"high",
+      alertText:`⚠ ALERTA DE NOTICIAS (${sym}): ${highCount} titular(es) de alto impacto detectados — ojo con picos bruscos en 1m/5m.`
+    };
+  }else if(medCount>0){
+    latestNews={
+      items:unique,
+      alertLevel:"med",
+      alertText:`⚡ AVISO DE VOLATILIDAD (${sym}): ${medCount} evento(s) de impacto moderado en titulares recientes.`
+    };
+  }else if(unique.length>0){
+    latestNews={
+      items:unique,
+      alertLevel:"ok",
+      alertText:`✔ Noticias de ${sym} en calma relativa (${unique.length} titulares recientes sin alerta fuerte).`
+    };
+  }else{
+    latestNews={
+      items:[],
+      alertLevel:"ok",
+      alertText:`ℹ Sin noticias recientes reportadas para ${sym} en este momento.`
+    };
+  }
+
+  $("newsStatus").textContent="actualizado "+new Date().toLocaleTimeString();
+  renderNewsUI();
+}
+
 function memKey(){
   return "fx_learned_v1_"+$("sym").value+"_"+$("tf").value;
 }
@@ -196,7 +367,6 @@ function getLearnedWeight(name){
   const n=st.w+st.l;
   if(!n)return{w:0,l:0,n:0,wr:null,approved:true,weight:0.5};
   const wr=st.w/n;
-  // Si ya hay al menos MIN_SAMPLES_FILTER señales evaluadas, solo aprueba las que superan MIN_WIN_RATE
   const approved=n<MIN_SAMPLES_FILTER?true:wr>=MIN_WIN_RATE;
   const weight=approved?(wr+0.05*Math.min(n,20)/20):0;
   return{w:st.w,l:st.l,n,wr,approved,weight};
@@ -362,18 +532,18 @@ async function analizar(){
     return{name:s.name,d:s.f(i),memSt,effectiveScore};
   });
 
-  // Solo entran en votación activa las estrategias aprobadas por la memoria guardada
   const activeFire=vs.filter(v=>v.d && v.memSt.approved);
   const horaVela=new Date(candleT).toLocaleTimeString();
   const horaLectura=new Date().toLocaleTimeString();
   const add=(t,cls)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;vl.appendChild(d);};
   const extra=sameCandle?" (misma vela cerrada; espera el próximo cierre para una vela nueva)":"";
+  const newsNote=latestNews.alertLevel==="high"?" · ⚠ Hay noticias de alto impacto activas":"";
 
   if(!activeFire.length){
     lastSignalRecord=null;
     sg.textContent="Neutral: no entrar";
     sg.className="";
-    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Ninguna estrategia aprobada da señal clara en la vela de las "+horaVela+extra+".";
+    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Ninguna estrategia aprobada da señal clara en la vela de las "+horaVela+extra+newsNote+".";
     $("grade").textContent="";
   }else{
     const best=[...activeFire].sort((a,b)=>b.effectiveScore-a.effectiveScore)[0];
@@ -381,7 +551,7 @@ async function analizar(){
     sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
     sg.className=up?"up":"dn";
     const memInfo=best.memSt.n>0?" · memoria "+((best.memSt.w/best.memSt.n)*100).toFixed(0)+"% ("+best.memSt.w+"/"+best.memSt.n+")":"";
-    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Estrategia: "+best.name+memInfo+" · "+agree+" de "+activeFire.length+" activas coinciden"+extra;
+    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Estrategia: "+best.name+memInfo+" · "+agree+" de "+activeFire.length+" activas coinciden"+extra+newsNote;
     const histSt=STATS&&STATS.find(y=>y.name===best.name);
     const g=histSt?grade(histSt.te):["Usando filtro de memoria guardada local para priorizar lo que mejor rinde","mut"];
     $("grade").textContent=g[0];$("grade").className=g[1];
@@ -503,6 +673,7 @@ async function start(){
     else localStorage.removeItem("fx_td_key");
   }catch{}
   if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
+  if(newsTimer){clearInterval(newsTimer);newsTimer=null;}
   closed=[];live=null;pending=[];W=0;L=0;STATS=null;lastAnalyzedCandle=null;readCount=0;lastSignalRecord=null;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
   $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("grade").textContent="";$("votes").textContent="";
@@ -510,6 +681,9 @@ async function start(){
   $("st").textContent="conectando Forex…";
   renderMem();
   draw();
+
+  fetchRealTimeNews();
+  newsTimer=setInterval(fetchRealTimeNews,180000);
 
   if(key){
     try{
@@ -564,6 +738,7 @@ setInterval(()=>{
 $("sym").onchange=start;
 $("tf").onchange=start;
 $("applyKey").onclick=start;
+$("refreshNews").onclick=fetchRealTimeNews;
 $("btn").onclick=analizar;
 $("btnWin").onclick=()=>manualOutcome(true);
 $("btnLoss").onclick=()=>manualOutcome(false);
