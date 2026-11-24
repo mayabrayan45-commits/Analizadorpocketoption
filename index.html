@@ -13,6 +13,7 @@ body{margin:0 auto;max-width:640px;padding:12px;background:var(--bg);color:var(-
 select,input{flex:1;padding:10px;border-radius:8px;border:1px solid var(--mut);background:var(--card);color:var(--fg);font-size:15px}
 button{width:100%;padding:14px;border:0;border-radius:10px;background:var(--up);color:#fff;font-size:17px;font-weight:600;margin-bottom:8px;cursor:pointer}
 button:active{opacity:.9}
+button:disabled{opacity:.6;cursor:wait}
 .btn-sm{width:auto;padding:10px 14px;font-size:14px;margin-bottom:0}
 .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:8px}
 .mut{color:var(--mut);font-size:13px}
@@ -72,9 +73,8 @@ canvas{width:100%;height:220px;display:block}
 <script>
 const $=id=>document.getElementById(id);
 const BE=1/1.85;
-let closed=[],live=null,pollTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null;
+let closed=[],live=null,pollTimer=null,pending=[],W=0,L=0,cfg=0,STATS=null,lastAnalyzedCandle=null,readCount=0;
 
-// Restaurar API key si el usuario la guardó antes
 try{
   const savedKey=localStorage.getItem("fx_td_key");
   if(savedKey)$("apiKey").value=savedKey;
@@ -185,36 +185,88 @@ function applyTick(price,nowMs=Date.now()){
   draw();
 }
 
-function analizar(){
-  const sg=$("sig"),vl=$("votes");
+async function fetchLatestTick(id){
+  const sym=$("sym").value,key=$("apiKey").value.trim();
+  if(key){
+    const u="https://api.twelvedata.com/price?symbol="+encodeURIComponent(sym)+"&apikey="+encodeURIComponent(key);
+    const r=await fetch(u);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const d=await r.json();
+    if(id!==cfg)return;
+    if(d && d.price!==undefined){
+      applyTick(+d.price);
+      $("st").textContent="● Forex en vivo";
+      return;
+    }
+    if(d && d.message)throw new Error(d.message);
+  }
+  const px=await fetchPublicFxRate(sym);
+  if(id!==cfg)return;
+  applyTick(px);
+  $("st").textContent="● Forex en vivo (feed público)";
+}
+
+async function analizar(){
+  const btn=$("btn"),sg=$("sig"),vl=$("votes"),id=cfg;
+  // Reinicia visualmente la lectura anterior en cada clic
+  btn.disabled=true;
+  btn.textContent="Leyendo gráfico…";
+  sg.textContent="Actualizando y analizando…";
+  sg.className="";
+  $("why").textContent="Consultando último precio en vivo…";
+  $("grade").textContent="";
+  $("grade").className="mut";
   vl.textContent="";
+
+  try{
+    await fetchLatestTick(id);
+  }catch(e){
+    if(id===cfg)$("st").textContent="aviso lectura ("+e.message+")";
+  }finally{
+    if(id===cfg){
+      btn.disabled=false;
+      btn.textContent="Analizar mercado ahora";
+    }
+  }
+  if(id!==cfg)return;
+
   if(closed.length<36){
     sg.textContent="Acumulando velas ("+closed.length+"/36)";
     sg.className="";
-    $("why").textContent="Se necesitan al menos 36 velas cerradas para calcular MACD y RSI. Mantén la página abierta o conecta una API key de Twelve Data para cargar historial al instante.";
+    $("why").textContent="Se necesitan al menos 36 velas cerradas para calcular MACD y RSI.";
     return;
   }
-  const S=build(closed),i=closed.length-1;
+
+  readCount++;
+  const S=build(closed),i=closed.length-1,candleT=closed[i].t;
+  const sameCandle=lastAnalyzedCandle===candleT;
+  lastAnalyzedCandle=candleT;
+
   const r=rsiS(closed.map(x=>x.c),14),rv=r[r.length-1];
   $("rsi").textContent=rv===null?"--":rv.toFixed(1);
   const vs=S.map(s=>({name:s.name,d:s.f(i)})),fire=vs.filter(v=>v.d);
   const find=nm=>STATS&&STATS.find(y=>y.name===nm);
   const sc=nm=>{const x=find(nm);return x?x.score:0;};
-  const hora=new Date(closed[i].t).toLocaleTimeString();
+  const horaVela=new Date(candleT).toLocaleTimeString();
+  const horaLectura=new Date().toLocaleTimeString();
   const add=(t,cls)=>{const d=document.createElement("div");d.textContent=t;if(cls)d.className=cls;vl.appendChild(d);};
+  const extra=sameCandle?" (misma vela cerrada; espera el próximo cierre para una vela nueva)":"";
+
   if(!fire.length){
-    sg.textContent="Neutral: no entrar";sg.className="";
-    $("why").textContent="Ninguna estrategia da dirección en la vela cerrada de las "+hora+".";$("grade").textContent="";
+    sg.textContent="Neutral: no entrar";
+    sg.className="";
+    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Ninguna estrategia da dirección en la vela de las "+horaVela+extra+".";
+    $("grade").textContent="";
   }else{
     const best=[...fire].sort((a,b)=>sc(b.name)-sc(a.name))[0];
     const agree=fire.filter(x=>x.d===best.d).length,up=best.d===1;
     sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
     sg.className=up?"up":"dn";
-    $("why").textContent="Estrategia: "+best.name+" · "+agree+" de "+fire.length+" activas coinciden · vela cerrada de las "+hora;
+    $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Estrategia: "+best.name+" · "+agree+" de "+fire.length+" activas coinciden · vela de las "+horaVela+extra;
     const st=find(best.name),g=st?grade(st.te):["Sin prueba de ~5.000 velas (agrega API key de Twelve Data para backtest largo)","mut"];
     $("grade").textContent=g[0];$("grade").className=g[1];
-    pending=pending.filter(p=>p.t!==closed[i].t);
-    pending.push({d:best.d,t:closed[i].t,name:best.name});
+    pending=pending.filter(p=>p.t!==candleT);
+    pending.push({d:best.d,t:candleT,name:best.name});
   }
   [...vs].sort((a,b)=>sc(b.name)-sc(a.name)).forEach(v=>{
     const st=find(v.name),n=st?st.te.w+st.te.l:0,pr=n?" · prueba "+(100*st.te.w/n).toFixed(1)+"% ("+n+")":"";
@@ -325,7 +377,7 @@ async function start(){
     else localStorage.removeItem("fx_td_key");
   }catch{}
   if(pollTimer){clearInterval(pollTimer);pollTimer=null;}
-  closed=[];live=null;pending=[];W=0;L=0;STATS=null;
+  closed=[];live=null;pending=[];W=0;L=0;STATS=null;lastAnalyzedCandle=null;readCount=0;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
   $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("grade").textContent="";$("votes").textContent="";
   $("hist").textContent="calculando…";
@@ -363,22 +415,7 @@ async function start(){
   const tick=async()=>{
     if(id!==cfg)return;
     try{
-      if(key){
-        const u="https://api.twelvedata.com/price?symbol="+encodeURIComponent(sym)+"&apikey="+encodeURIComponent(key);
-        const r=await fetch(u);
-        if(!r.ok)throw new Error("HTTP "+r.status);
-        const d=await r.json();
-        if(id!==cfg)return;
-        if(d && d.price!==undefined){
-          applyTick(+d.price);
-          $("st").textContent="● Forex en vivo";
-          return;
-        }
-      }
-      const px=await fetchPublicFxRate(sym);
-      if(id!==cfg)return;
-      applyTick(px);
-      $("st").textContent="● Forex en vivo (feed público)";
+      await fetchLatestTick(id);
     }catch(e){
       if(id!==cfg)return;
       $("st").textContent="aviso feed FX ("+e.message+")";
@@ -386,7 +423,7 @@ async function start(){
   };
 
   await tick();
-  pollTimer=setInterval(tick,5000);
+  pollTimer=setInterval(tick,key?10000:5000);
 }
 
 setInterval(()=>{
