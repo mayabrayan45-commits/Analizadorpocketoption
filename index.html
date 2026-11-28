@@ -38,6 +38,11 @@ canvas{width:100%;height:220px;display:block}
 .pill-high{background:var(--dn);color:#fff}
 .pill-med{background:var(--warn);color:#111}
 .pill-low{background:rgba(138,143,152,.25);color:var(--fg)}
+.prob-box{display:none;margin:8px 0;padding:10px 12px;border-radius:10px;background:rgba(138,143,152,.08);border:1px solid rgba(138,143,152,.25)}
+.prob-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.prob-num{font-size:22px;font-weight:800}
+.prob-bar{height:6px;border-radius:99px;background:rgba(138,143,152,.25);overflow:hidden;margin:6px 0}
+.prob-fill{height:100%;width:0%;transition:width .25s ease}
 </style>
 </head>
 <body>
@@ -76,6 +81,14 @@ canvas{width:100%;height:220px;display:block}
 <div class="card">
   <div class="mut">Análisis sobre la última vela cerrada · RSI(14): <span id="rsi">--</span></div>
   <div id="sig">Toca «Analizar mercado ahora»</div>
+  <div id="probBox" class="prob-box">
+    <div class="prob-top">
+      <span class="mut" style="font-weight:600">Probabilidad estricta de acierto:</span>
+      <span id="probVal" class="prob-num">--%</span>
+    </div>
+    <div class="prob-bar"><div id="probFill" class="prob-fill"></div></div>
+    <div id="probDetail" class="mut"></div>
+  </div>
   <div class="mut" id="why">Para que coincida con la prueba histórica, analiza justo al cerrar la vela y entra en la apertura de la siguiente, con expiración de una vela.</div>
   <div id="grade" class="mut"></div>
   <div id="votes"></div>
@@ -183,6 +196,84 @@ function grade(te){
 }
 // PURE-END
 
+/**
+ * Cálculo estricto de probabilidad de acierto por estrategia y operación:
+ * - Usa límite inferior del intervalo de Wilson (95% confianza) para castigar muestras pequeñas.
+ * - Si existen tanto backtest histórico como memoria local, toma el PEOR de ambos (criterio conservador).
+ * - Si no hay historial ni memoria suficiente, parte de una base conservadora (48%, bajo el punto de equilibrio).
+ * - Penaliza señales contrarias activas (-3.5% c/u) y noticias de alto/medio impacto (-8% / -3.5%).
+ */
+function calcStrictStrategyProb(memSt, histSt){
+  const candidates=[];
+  if(histSt && histSt.te){
+    const tn=(histSt.te.w||0)+(histSt.te.l||0);
+    if(tn>=15){
+      candidates.push(wl(histSt.te.w, tn));
+    }
+  }
+  if(memSt && memSt.n>0){
+    // Límite inferior de Wilson sobre las operaciones reales evaluadas
+    const memLower=wl(memSt.w, memSt.n);
+    candidates.push(memLower);
+  }
+  if(!candidates.length){
+    // Sin respaldo estadístico suficiente: penalización por incertidumbre (bajo el 54.05% de equilibrio)
+    return 0.48;
+  }
+  // Criterio estricto: toma el menor entre la prueba histórica y el límite inferior de memoria real
+  return Math.min(...candidates);
+}
+
+function calcStrictTradeProb(best, activeFire){
+  const dir=best.d;
+  const aligned=activeFire.filter(x=>x.d===dir);
+  const opposed=activeFire.filter(x=>x.d===-dir);
+
+  // Base estricta de la estrategia líder
+  let p=best.strictProb;
+
+  // Si varias estrategias coinciden, promedia conservadoramente con el 30% de la segunda mejor y suma un bono pequeño
+  if(aligned.length>1){
+    const sortedAligned=[...aligned].sort((a,b)=>b.strictProb-a.strictProb);
+    const secondProb=sortedAligned[1].strictProb;
+    p=p*0.75 + secondProb*0.25 + Math.min(0.04, (aligned.length-1)*0.012);
+  }
+
+  // Penalización severa por cada estrategia activa que contradice la entrada
+  p -= opposed.length * 0.035;
+
+  // Penalización por riesgo macroeconómico en tiempo real
+  if(latestNews.alertLevel==="high") p -= 0.08;
+  else if(latestNews.alertLevel==="med") p -= 0.035;
+
+  // Tope realista: en opciones binarias/FX a 1 vela ningún sistema real supera ~76% sostenido
+  p=Math.max(0.15, Math.min(0.76, p));
+
+  const pct=p*100;
+  let label,cls,fillColor;
+  if(pct>=58){
+    label="Apta (supera equilibrio 54,05% con margen)";
+    cls="up";
+    fillColor="var(--up)";
+  }else if(pct>=54.05){
+    label="Al límite del equilibrio (54,05%) · riesgo moderado";
+    cls="warn";
+    fillColor="var(--warn)";
+  }else{
+    label="Bajo el equilibrio (54,05%) · no recomendada";
+    cls="dn";
+    fillColor="var(--dn)";
+  }
+
+  const reasons=[];
+  reasons.push(`base Wilson: ${(best.strictProb*100).toFixed(1)}%`);
+  if(opposed.length)reasons.push(`-${(opposed.length*3.5).toFixed(1)}% por ${opposed.length} en contra`);
+  if(latestNews.alertLevel==="high")reasons.push(`-8.0% noticia alto impacto`);
+  else if(latestNews.alertLevel==="med")reasons.push(`-3.5% noticia impacto medio`);
+
+  return{pct,label,cls,fillColor,detail:reasons.join(" · ")};
+}
+
 function classifyImpact(title,summary=""){
   const txt=(title+" "+summary).toLowerCase();
   const highWords=["rate","interest","fed","fomc","ecb","boe","boj","cpi","inflation","nonfarm","nfp","payroll","gdp","unemployment","powell","lagarde","bailey","ueda","tariff","emergency","war","geopolit","central bank","tasa","inflación","empleo","banco central","pib"];
@@ -237,7 +328,6 @@ async function fetchRealTimeNews(){
   $("newsStatus").textContent="actualizando…";
   const collected=[];
 
-  // Fuente 1: GDELT 2.0 Doc API (noticias globales recientes en tiempo real sin API key)
   try{
     const queryStr=encodeURIComponent(`(${b} OR ${q} OR forex OR "central bank" OR inflation OR rate)`);
     const gdeltUrl=`https://api.gdeltproject.org/api/v2/doc/doc?query=${queryStr}&mode=ArtList&maxrecords=12&format=json&sort=DateDesc`;
@@ -267,7 +357,6 @@ async function fetchRealTimeNews(){
     }
   }catch{}
 
-  // Fuente 2: respaldo vía rss2json / Yahoo Finance FX RSS si GDELT no devuelve suficiente
   if(collected.length<3){
     try{
       const pairCode=(b+q+"=X");
@@ -290,7 +379,6 @@ async function fetchRealTimeNews(){
     }catch{}
   }
 
-  // Deduplicar por título normalizado
   const seen=new Set();
   const unique=[];
   for(const item of collected){
@@ -368,7 +456,7 @@ function getLearnedWeight(name){
   if(!n)return{w:0,l:0,n:0,wr:null,approved:true,weight:0.5};
   const wr=st.w/n;
   const approved=n<MIN_SAMPLES_FILTER?true:wr>=MIN_WIN_RATE;
-  const weight=approved?(wr+0.05*Math.min(n,20)/20):0;
+  const weight=approved?(wl(st.w,n)):0;
   return{w:st.w,l:st.l,n,wr,approved,weight};
 }
 
@@ -380,7 +468,7 @@ function renderMem(){
   const entries=Object.entries(mem)
     .map(([name,st])=>({name,w:st.w||0,l:st.l||0,n:(st.w||0)+(st.l||0)}))
     .filter(x=>x.n>0)
-    .sort((a,b)=>(b.w/b.n)-(a.w/a.n)||b.n-a.n);
+    .sort((a,b)=>wl(b.w,b.n)-wl(a.w,a.n)||b.n-a.n);
 
   if(!entries.length){
     sum.textContent="Sin señales evaluadas todavía en este par/tiempo. Usa los botones de acierto/fallo o deja cerrar la siguiente vela.";
@@ -392,10 +480,11 @@ function renderMem(){
 
   entries.forEach(x=>{
     const pct=((x.w/x.n)*100).toFixed(1);
+    const strictPct=(wl(x.w,x.n)*100).toFixed(1);
     const isFilteredOut=x.n>=MIN_SAMPLES_FILTER && (x.w/x.n)<MIN_WIN_RATE;
     const d=document.createElement("div");
     d.className=isFilteredOut?"dn":((x.w/x.n)>=MIN_WIN_RATE?"up":"mut");
-    d.textContent=(isFilteredOut?"⛔ EXCLUIDA · ":"✔ ACTIVA · ")+x.name+" · "+pct+"% ("+x.w+"W / "+x.l+"L)";
+    d.textContent=(isFilteredOut?"⛔ EXCLUIDA · ":"✔ ACTIVA · ")+x.name+" · bruto "+pct+"% · estricto "+strictPct+"% ("+x.w+"W / "+x.l+"L)";
     list.appendChild(d);
   });
 }
@@ -414,7 +503,8 @@ function onClose(c){
         recordOutcome(s.voters||[{name:s.name}],win);
         const d=document.createElement("div");
         d.className=win?"up":"dn";
-        d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+" · "+s.name;
+        const probTag=s.prob!==undefined?` [${s.prob.toFixed(1)}%]`:"";
+        d.textContent=(win?"✔ ":"✘ ")+(s.d===1?"CALL":"PUT")+probTag+" · "+s.name;
         $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
       }
     }else keep.push(s);
@@ -440,7 +530,8 @@ function manualOutcome(won){
   if(n)$("score").textContent=n+" operaciones · acierto "+(100*W/n).toFixed(1)+"% (W "+W+" / L "+L+")";
   const d=document.createElement("div");
   d.className=won?"up":"dn";
-  d.textContent=(won?"✔ ":"✘ ")+(lastSignalRecord.d===1?"CALL":"PUT")+" · "+lastSignalRecord.name+" (guardado)";
+  const probTag=lastSignalRecord.prob!==undefined?` [${lastSignalRecord.prob.toFixed(1)}%]`:"";
+  d.textContent=(won?"✔ ":"✘ ")+(lastSignalRecord.d===1?"CALL":"PUT")+probTag+" · "+lastSignalRecord.name+" (guardado)";
   $("log").prepend(d);while($("log").children.length>8)$("log").lastChild.remove();
   $("why").textContent=(won?"Acierto guardado":"Fallo guardado")+" para "+lastSignalRecord.name+". La memoria ya ajustó qué estrategias usar.";
 }
@@ -487,11 +578,12 @@ async function fetchLatestTick(id){
 }
 
 async function analizar(){
-  const btn=$("btn"),sg=$("sig"),vl=$("votes"),id=cfg;
+  const btn=$("btn"),sg=$("sig"),vl=$("votes"),probBox=$("probBox"),id=cfg;
   btn.disabled=true;
   btn.textContent="Leyendo gráfico…";
   sg.textContent="Actualizando y analizando…";
   sg.className="";
+  probBox.style.display="none";
   $("why").textContent="Consultando último precio en vivo…";
   $("grade").textContent="";
   $("grade").className="mut";
@@ -527,9 +619,8 @@ async function analizar(){
   const vs=S.map(s=>{
     const memSt=getLearnedWeight(s.name);
     const histSt=STATS&&STATS.find(y=>y.name===s.name);
-    const baseScore=histSt?histSt.score:0.5;
-    const effectiveScore=memSt.n>0?memSt.weight:baseScore;
-    return{name:s.name,d:s.f(i),memSt,effectiveScore};
+    const strictProb=calcStrictStrategyProb(memSt,histSt);
+    return{name:s.name,d:s.f(i),memSt,histSt,strictProb};
   });
 
   const activeFire=vs.filter(v=>v.d && v.memSt.approved);
@@ -541,32 +632,43 @@ async function analizar(){
 
   if(!activeFire.length){
     lastSignalRecord=null;
+    probBox.style.display="none";
     sg.textContent="Neutral: no entrar";
     sg.className="";
     $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Ninguna estrategia aprobada da señal clara en la vela de las "+horaVela+extra+newsNote+".";
     $("grade").textContent="";
   }else{
-    const best=[...activeFire].sort((a,b)=>b.effectiveScore-a.effectiveScore)[0];
+    const best=[...activeFire].sort((a,b)=>b.strictProb-a.strictProb)[0];
     const agree=activeFire.filter(x=>x.d===best.d).length,up=best.d===1;
-    sg.textContent=up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)";
+    const tradeProb=calcStrictTradeProb(best,activeFire);
+
+    sg.textContent=(up?"ENTRAR: CALL ▲ (sube)":"ENTRAR: PUT ▼ (baja)")+" · "+tradeProb.pct.toFixed(1)+"%";
     sg.className=up?"up":"dn";
+
+    probBox.style.display="block";
+    $("probVal").textContent=tradeProb.pct.toFixed(1)+"%";
+    $("probVal").className="prob-num "+tradeProb.cls;
+    $("probFill").style.width=Math.min(100,Math.max(5,tradeProb.pct))+"%";
+    $("probFill").style.background=tradeProb.fillColor;
+    $("probDetail").textContent=tradeProb.label+" ("+tradeProb.detail+")";
+
     const memInfo=best.memSt.n>0?" · memoria "+((best.memSt.w/best.memSt.n)*100).toFixed(0)+"% ("+best.memSt.w+"/"+best.memSt.n+")":"";
     $("why").textContent="Lectura #"+readCount+" ("+horaLectura+") · Estrategia: "+best.name+memInfo+" · "+agree+" de "+activeFire.length+" activas coinciden"+extra+newsNote;
-    const histSt=STATS&&STATS.find(y=>y.name===best.name);
-    const g=histSt?grade(histSt.te):["Usando filtro de memoria guardada local para priorizar lo que mejor rinde","mut"];
+    const g=best.histSt?grade(best.histSt.te):["Sin backtest de 5.000 velas: porcentaje castigado por incertidumbre estadística","mut"];
     $("grade").textContent=g[0];$("grade").className=g[1];
 
     const voters=activeFire.filter(x=>x.d===best.d).map(x=>({name:x.name}));
-    lastSignalRecord={d:best.d,t:candleT,name:best.name,voters,marked:false};
+    lastSignalRecord={d:best.d,t:candleT,name:best.name,voters,marked:false,prob:tradeProb.pct};
     pending=pending.filter(p=>p.t!==candleT);
-    pending.push({d:best.d,t:candleT,name:best.name,voters});
+    pending.push({d:best.d,t:candleT,name:best.name,voters,prob:tradeProb.pct});
   }
 
-  [...vs].sort((a,b)=>b.effectiveScore-a.effectiveScore).forEach(v=>{
-    const mTxt=v.memSt.n>0?" · memoria "+((v.memSt.w/v.memSt.n)*100).toFixed(0)+"% ("+v.memSt.w+"/"+v.memSt.n+")":"";
-    const stTxt=!v.memSt.approved?"[excluida por bajo rendimiento] ":(v.d===1?"▲ CALL":v.d===-1?"▼ PUT":"— sin señal");
-    const cls=!v.memSt.approved?"dn":"mut";
-    add(stTxt+" · "+v.name+mTxt,cls);
+  [...vs].sort((a,b)=>b.strictProb-a.strictProb).forEach(v=>{
+    const mTxt=v.memSt.n>0?" · mem "+v.memSt.w+"/"+v.memSt.n:"";
+    const pTxt=" · acierto estricto: "+(v.strictProb*100).toFixed(1)+"%";
+    const stTxt=!v.memSt.approved?"[excluida] ":(v.d===1?"▲ CALL":v.d===-1?"▼ PUT":"— sin señal");
+    const cls=!v.memSt.approved?"dn":(v.d?(v.strictProb>=BE?"up":"warn"):"mut");
+    add(stTxt+" · "+v.name+pTxt+mTxt,cls);
   });
 }
 
@@ -676,7 +778,7 @@ async function start(){
   if(newsTimer){clearInterval(newsTimer);newsTimer=null;}
   closed=[];live=null;pending=[];W=0;L=0;STATS=null;lastAnalyzedCandle=null;readCount=0;lastSignalRecord=null;
   $("log").textContent="";$("score").textContent="Sin operaciones simuladas todavía";
-  $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("grade").textContent="";$("votes").textContent="";
+  $("sig").textContent="Toca «Analizar mercado ahora»";$("sig").className="";$("probBox").style.display="none";$("grade").textContent="";$("votes").textContent="";
   $("hist").textContent="calculando…";
   $("st").textContent="conectando Forex…";
   renderMem();
